@@ -1,0 +1,38 @@
+name: Sugerir melhoria
+description: Proponha um recurso, um novo agente ou uma melhoria.
+labels: ["melhoria"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qual problema esta melhoria resolve?
+      description: Descreva a situação atual e por que ela é limitante.
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Proposta
+      description: Como você imagina a solução? Inclua exemplos de uso, se possível.
+    validations:
+      required: true
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas consideradas
+  - type: checkboxes
+    id: regras
+    attributes:
+      label: Regras do projeto
+      description: Toda proposta deve respeitar as regras do guia de contribuição.
+      options:
+        - label: A proposta mantém os dados do usuário somente no computador dele, sem telemetria.
+          required: true
+        - label: Ações de agentes continuam passando pelo Portão de Permissões.
+          required: true
+  - type: checkboxes
+    id: ajuda
+    attributes:
+      label: Contribuição
+      options:
+        - label: Tenho interesse em implementar esta melhoria.

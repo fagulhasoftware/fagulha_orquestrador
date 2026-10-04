@@ -1,5 +1,5 @@
 // Contrato entre o webview (interface de chat) e o extension host.
-// Dono: Claude e Codex em conjunto. Qualquer alteracao precisa ser registrada na missao M-0001.
+// Alteracoes afetam a interface e a extensao: descreva o impacto no pull request (ver CONTRIBUTING.md).
 // Regra: o webview nunca recebe segredos nem caminhos de arquivos de credenciais.
 
 export const VERSAO_PROTOCOLO = 2; // v2: fluxo de login sem terminal (2026-10-04)

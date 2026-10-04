@@ -13,8 +13,8 @@ Produto da Fagulha. Nomenclatura oficial:
 
 A pasta local de dados `~/.orquestra` e a sala de terminal mantem o nome antigo (internos).
 
-Versao 0.1 - 2026-10-04 - autor: Claude (arquiteto). Mudancas neste documento e em
-`src/shared/protocolo.ts` exigem acordo entre Claude e Codex, registrado na missao.
+Versao 0.1 - 2026-10. Mudancas neste documento e em `src/shared/protocolo.ts` devem ser propostas em
+*issue* ou *pull request* e aprovadas por um mantenedor (ver CONTRIBUTING.md).
 
 ## 1. Visao
 
@@ -37,20 +37,20 @@ Principios inegociaveis:
 
 ```
 src/
-  extension.ts            ativacao, comandos, registro do WebviewView, API publica (Codex)
+  extension.ts            ativacao, comandos, registro do WebviewView, API publica
   shared/protocolo.ts     contrato webview <-> host (Claude, alteracao conjunta)
-  core/sala.ts            sala por janela: historico, fila, mencoes, passagem da palavra, /parar (Codex)
-  core/contexto.ts        montagem do prompt de cada agente (porta de contexto() do sala.mjs) (Codex)
-  providers/              Provedor + implementacoes CLI e API, carregador de manifestos (Codex)
-  permissions/            Portao de Permissoes, matriz nivel x categoria, auditoria (Codex)
-  mcp/                    servidor MCP "fagulha_orquestrador" (stdio) + ponte HTTP local com o host (Codex)
-  storage/                SQLite (sql.js/WASM), migrations, repositorios (Codex)
-  attachments/            pipeline de anexos com limites, em worker com timeout (Codex)
-  context-import/         importar conversas do Claude Code, Codex e da sala de terminal (Codex)
-  browser/                ler pagina (fetch + extracao), abrir no navegador externo (Codex)
+  core/sala.ts            sala por janela: historico, fila, mencoes, passagem da palavra, /parar
+  core/contexto.ts        montagem do prompt de cada agente (porta de contexto() do sala.mjs)
+  providers/              Provedor + implementacoes CLI e API, carregador de manifestos
+  permissions/            Portao de Permissoes, matriz nivel x categoria, auditoria
+  mcp/                    servidor MCP "fagulha_orquestrador" (stdio) + ponte HTTP local com o host
+  storage/                SQLite (sql.js/WASM), migrations, repositorios
+  attachments/            pipeline de anexos com limites, em worker com timeout
+  context-import/         importar conversas do Claude Code, Codex e da sala de terminal
+  browser/                ler pagina (fetch + extracao), abrir no navegador externo
   voice/                  gravacao ffmpeg + transcricao whisper.cpp local (Codex, fase 1b)
-  webview/                interface de chat (Claude)
-media/                    icones e CSS (Claude)
+  webview/                interface de chat
+media/                    icones e CSS
 ```
 
 ## 3. Sala
@@ -189,17 +189,22 @@ conteudo e resumido para um orcamento de tamanho (padrao 12 000 caracteres, ulti
    escolhe o nivel de permissao (aviso de riscos para Total), mostra onde os dados ficam.
 3. Configuracoes em `fagulha.*` (settings do VS Code) e tela propria no painel.
 
-## 12. Divisao do trabalho e validacao
+## 12. Areas do codigo e validacao
 
-| Dono | Arquivos |
+| Area | Arquivos |
 |---|---|
-| Claude | `docs/**`, `src/shared/protocolo.ts` (conjunto), `src/webview/**`, `media/**` |
-| Codex | `package.json`, `tsconfig*.json`, `esbuild.mjs`, `src/extension.ts`, `src/core/**`, `src/providers/**`, `src/permissions/**`, `src/mcp/**`, `src/storage/**`, `src/attachments/**`, `src/context-import/**`, `src/browser/**`, `src/voice/**`, `test/**` |
+| Contrato interface <-> extensao | `src/shared/protocolo.ts` |
+| Interface de chat | `src/webview/**`, `media/**` |
+| Extensao (host) | `src/extension.ts`, `src/core/**`, `src/providers/**`, `src/permissions/**`, `src/mcp/**`, `src/storage/**`, `src/attachments/**`, `src/context-import/**`, `src/browser/**`, `src/voice/**` |
+| Build e empacotamento | `package.json`, `tsconfig*.json`, `esbuild.mjs`, `scripts/**` |
+| Testes | `test/**` |
 
-Ninguem altera arquivo do outro; divergencias vao para a secao "Objecoes" do proprio arquivo da missao.
-Validacao conjunta: Codex revisa `src/webview/**`, Claude revisa o restante; testes automatizados
-(`npm test`) cobrindo matriz de permissoes, limites de anexos, roteamento de mencoes e contrato;
-depois roteiro manual do usuario no VS Code.
+A interface e a extensao so se comunicam pelo contrato. Mudancas que alteram o formato de mensagens
+existentes aumentam `VERSAO_PROTOCOLO`.
+
+Validacao de toda mudanca: `npm test` (matriz de permissoes, limites de anexos, roteamento de mencoes,
+login, MCP, armazenamento e contrato), `npm run check:webview`, `npm run package` com o verificador de
+privacidade e teste manual no VS Code (F5).
 
 ## 13. Fases
 
