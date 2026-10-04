@@ -640,7 +640,7 @@ test('Windows: encerramento solicita taskkill /T /F para a árvore, janela ocult
 });
 
 test('Ollama verifica /api/tags; opções dos agentes e manifesto compatível seguem contrato v2', async () => {
-  assert.equal(VERSAO_PROTOCOLO, 2);
+  assert.equal(VERSAO_PROTOCOLO, 4);
   const memoria = segredosMemoria();
   const servidor = createServer((req, res) => {
     assert.equal(req.url, '/api/tags');

@@ -6,6 +6,7 @@ import { validarArgumentos } from './ferramentas';
 import { lerPagina, validarUrl } from '../browser/pagina';
 import { rodar } from '../providers/processo';
 import type { CategoriaAcao } from '../shared/protocolo';
+import { validarMemoria } from '../core/memoria';
 export function comandoCritico(comando: string): boolean {
   if (
     /\b(rm|rmdir|del|erase|Remove-Item|format|mkfs|diskpart|shutdown|reboot|drop|truncate)\b|\bgit\s+(push|reset|clean)\b|\b(npm|pnpm|yarn)\s+publish\b|\b(curl|wget|Invoke-WebRequest)\b|[;&|`<>\r\n]|\$\(/i.test(
@@ -41,6 +42,12 @@ export class ExecutorFerramentas {
     const args = validarArgumentos(nome, entrada);
     const agente = this.sala.provedores.get(id)?.agente;
     if (!agente || sinal.aborted) throw new Error('Execucao encerrada.');
+    const chatId = this.sala.chat.id;
+    const confirmarChat = async () => {
+      if (this.sala.chat.id !== chatId || sinal.aborted)
+        throw new Error('Execucao encerrada ao trocar de chat.');
+      await this.sala.chats.obter(chatId);
+    };
     if (nome === 'aprovar') {
       const ferramenta = String(args.tool_name).replace(/^mcp__fagulha_orquestrador__/, '');
       if (String(args.tool_name).startsWith('mcp__fagulha_orquestrador__')) {
@@ -105,7 +112,7 @@ export class ExecutorFerramentas {
             detalhe,
             critica,
           },
-          async () => {},
+          confirmarChat,
           sinal,
         );
         return { behavior: 'allow', updatedInput: input };
@@ -135,6 +142,7 @@ export class ExecutorFerramentas {
           critica,
         },
         async () => {
+          await confirmarChat();
           const r = await fn();
           this.sala.mensagem(
             agente.nick,
@@ -145,6 +153,23 @@ export class ExecutorFerramentas {
         },
         sinal,
       );
+    if (nome === 'memoria_propor') {
+      const texto = validarMemoria(String(args.texto));
+      const escopo = args.escopo as 'global' | 'projeto';
+      if (escopo === 'projeto' && !this.sala.projeto)
+        throw new Error('Abra uma pasta para propor memoria de projeto.');
+      return portao(
+        'memoria',
+        `Guardar na memoria: ${texto.slice(0, 100)}`,
+        `Texto: ${texto}\nEscopo: ${escopo}`,
+        async () => {
+          const memoria = await this.sala.salvarMemoria({ texto, escopo }, agente.nick);
+          return { guardada: true, id: memoria.id };
+        },
+        true,
+        true,
+      );
+    }
     if (nome === 'sala_publicar')
       return portao(
         'escrita_workspace',

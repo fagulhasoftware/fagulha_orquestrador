@@ -68,7 +68,7 @@ test('MCP stdio real lista e executa ferramentas pela ponte', async () => {
     await cliente.connect(transporte);
     assert.equal(cliente.getServerVersion()?.name, 'fagulha_orquestrador');
     const lista = await cliente.listTools();
-    assert.equal(lista.tools.length, 10);
+    assert.equal(lista.tools.length, 11);
     const resposta = await cliente.callTool({ name: 'sala_ler', arguments: {} });
     assert.equal(resposta.isError, undefined);
     assert.deepEqual(JSON.parse((resposta.content as any)[0].text), { ok: true });

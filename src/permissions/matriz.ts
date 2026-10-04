@@ -12,6 +12,7 @@ export const categorias: CategoriaAcao[] = [
   'publicacao',
   'credencial',
   'destrutiva',
+  'memoria',
 ];
 export const matriz: Record<NivelPermissao, Record<CategoriaAcao, Decisao>> = {
   manual: {
@@ -26,6 +27,7 @@ export const matriz: Record<NivelPermissao, Record<CategoriaAcao, Decisao>> = {
     publicacao: 'aprovar',
     credencial: 'aprovar',
     destrutiva: 'aprovar',
+    memoria: 'aprovar',
   },
   parcial: {
     leitura_workspace: 'automatica',
@@ -39,6 +41,7 @@ export const matriz: Record<NivelPermissao, Record<CategoriaAcao, Decisao>> = {
     publicacao: 'aprovar',
     credencial: 'aprovar',
     destrutiva: 'aprovar',
+    memoria: 'aprovar',
   },
   total: {
     leitura_workspace: 'automatica',
@@ -52,10 +55,11 @@ export const matriz: Record<NivelPermissao, Record<CategoriaAcao, Decisao>> = {
     publicacao: 'aprovar',
     credencial: 'aprovar',
     destrutiva: 'aprovar',
+    memoria: 'aprovar',
   },
 };
 export function critica(c: CategoriaAcao): boolean {
-  return ['publicacao', 'credencial', 'destrutiva'].includes(c);
+  return ['publicacao', 'credencial', 'destrutiva', 'memoria'].includes(c);
 }
 export function decidir(
   nivel: NivelPermissao,

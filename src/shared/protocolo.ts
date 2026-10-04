@@ -2,7 +2,7 @@
 // Alteracoes afetam a interface e a extensao: descreva o impacto no pull request (ver CONTRIBUTING.md).
 // Regra: o webview nunca recebe segredos nem caminhos de arquivos de credenciais.
 
-export const VERSAO_PROTOCOLO = 2; // v2: fluxo de login sem terminal (2026-10-04)
+export const VERSAO_PROTOCOLO = 4; // v4: chats e memoria persistente, versao 0.2.1
 
 // ---------- dominio ----------
 
@@ -53,7 +53,8 @@ export type CategoriaAcao =
   | 'leitura_workspace' | 'escrita_workspace'
   | 'leitura_maquina' | 'escrita_maquina'
   | 'comando' | 'rede_leitura' | 'navegador' | 'externo'
-  | 'publicacao' | 'credencial' | 'destrutiva';
+  | 'publicacao' | 'credencial' | 'destrutiva'
+  | 'memoria';           // v4: agente propoe guardar algo na memoria persistente
 
 export interface Agente {
   id: string;                 // 'claude', 'codex', 'gemini', 'ollama:llama3', ...
@@ -134,9 +135,43 @@ export interface Configuracao {
   };
 }
 
+// ---------- chats e memoria (v4) ----------
+// Um chat e uma conversa persistente. A janela abre o ultimo chat usado na sua pasta (ou o ultimo sem projeto).
+// O menu Chats lista conversas de todos os projetos; abrir um chat de outro projeto mostra o historico completo,
+// e os agentes continuam trabalhando na pasta da janela atual.
+export interface ResumoChat {
+  id: string;
+  titulo: string;               // gerado da primeira mensagem; editavel
+  projeto: string | null;       // pasta onde o chat foi criado (null = sem projeto)
+  projetoNome: string | null;   // nome curto da pasta, para exibicao
+  desteProjeto: boolean;        // true se o projeto do chat e a pasta desta janela
+  criadoEm: string;             // ISO
+  atualizadoEm: string;         // ISO da ultima mensagem
+  mensagens: number;
+  agentes: string[];            // nicks que participaram
+  fixado: boolean;
+  trecho?: string;              // somente em resultados de busca: trecho que casou (texto simples, curto)
+}
+
+// Memoria persistente: fatos curtos que valem para todos os chats do escopo e sao enviados como contexto aos agentes.
+export interface Memoria {
+  id: string;
+  escopo: 'global' | 'projeto';
+  projeto: string | null;       // pasta, quando escopo = 'projeto'
+  projetoNome: string | null;
+  texto: string;                // ate 500 caracteres; nunca segredos
+  origem: 'usuario' | 'agente';
+  agente?: string;              // nick, quando proposta por agente e aprovada pelo usuario
+  ativa: boolean;               // desativada = guardada, mas nao enviada aos agentes
+  criadaEm: string;
+  atualizadaEm: string;
+}
+
 export interface EstadoSala {
   versaoProtocolo: number;
-  sala: { id: string; projeto: string | null; titulo: string };
+  sala: { id: string; projeto: string | null; titulo: string };  // sala da janela (pasta); id interno
+  chat: ResumoChat;             // v4: chat aberto nesta janela
+  memoriasAtivas: number;       // v4: quantas memorias (global + deste projeto) estao sendo enviadas aos agentes
   configuracao: Configuracao;
   agentes: Agente[];
   mensagens: Mensagem[];      // ultimas N; mais antigas via 'carregarAnteriores'
@@ -144,7 +179,58 @@ export interface EstadoSala {
   contextos: ContextoImportado[];
   aprovacoes: PedidoAprovacao[];
   primeiraExecucao: boolean;  // true -> webview mostra o assistente
-  voz: { disponivel: boolean; motivo?: string; gravando: boolean };
+  voz: EstadoVoz;
+}
+
+// ---------- voz (v3) ----------
+// Falar: ffmpeg grava o microfone num arquivo temporario; whisper.cpp transcreve localmente; o arquivo e
+// apagado em seguida. Ouvir: voz nativa do sistema (Windows SAPI, macOS say, Linux spd-say).
+// Nenhum audio ou transcricao sai do computador; o audio nunca e gravado no SQLite.
+export type ComponenteVoz = 'ffmpeg' | 'whisper' | 'modelo';
+export type ModeloVoz = 'base' | 'small' | 'medium';
+export type SituacaoComponente = 'instalado' | 'ausente' | 'instalando' | 'erro' | 'manual';
+// 'manual': o sistema nao permite instalacao automatica (macOS/Linux para ffmpeg/whisper); ver 'comandoManual'.
+
+export interface ItemInstalacaoVoz {
+  componente: ComponenteVoz;
+  situacao: SituacaoComponente;
+  nome: string;              // ex.: 'ffmpeg 7.1 (build oficial)', 'Modelo small (portugues)'
+  origem?: string;           // host de onde sera baixado, ex.: 'github.com', 'huggingface.co'
+  tamanhoBytes?: number;     // tamanho do download, exibido antes do consentimento
+  comandoManual?: string;    // ex.: 'brew install ffmpeg whisper-cpp'
+  mensagem?: string;         // erro ou observacao em portugues
+}
+
+export interface ProgressoInstalacaoVoz {
+  componente: ComponenteVoz;
+  etapa: 'baixando' | 'verificando' | 'extraindo' | 'concluido' | 'erro' | 'cancelado';
+  baixadoBytes?: number;
+  totalBytes?: number;
+  mensagem?: string;
+}
+
+export interface EstadoVoz {
+  disponivel: boolean;        // gravar + transcrever prontos
+  motivo?: string;            // por que nao esta disponivel
+  gravando: boolean;
+  transcrevendo: boolean;
+  segundosGravados?: number;  // atualizado pelo host durante a gravacao
+  limiteSegundos: number;     // duracao maxima de uma gravacao (padrao 120)
+  componentes: ItemInstalacaoVoz[];
+  dispositivos: { id: string; nome: string }[];  // microfones detectados
+  dispositivo?: string;       // id escolhido; vazio = padrao do sistema
+  modelo: ModeloVoz;          // padrao 'small'
+  idioma: 'pt' | 'en' | 'es' | 'auto';
+  envioAutomatico: boolean;   // true: transcricao e enviada direto; false: vai para a caixa de texto
+  leitura: {
+    disponivel: boolean;      // voz do sistema encontrada
+    motivo?: string;
+    ativa: boolean;           // ler automaticamente as falas dos agentes
+    vozes: { id: string; nome: string }[];
+    voz?: string;
+    velocidade: number;       // 0.5 a 2.0
+    falando?: string;         // id da Mensagem sendo lida
+  };
 }
 
 // ---------- webview -> host ----------
@@ -176,9 +262,28 @@ export type DoWebview =
   | { tipo: 'definirNivel'; nivel: NivelPermissao; confirmacao?: string } // 'total' exige confirmacao === 'ACEITO OS RISCOS'
   | { tipo: 'concluirAssistente' }
   | { tipo: 'vozIniciar' }
-  | { tipo: 'vozParar' }
+  | { tipo: 'vozParar' }                                        // para e transcreve
+  | { tipo: 'vozDescartar' }                                    // v3: para sem transcrever
+  | { tipo: 'vozInstalar'; componentes: ComponenteVoz[] }       // v3: o clique e o consentimento; host so baixa o listado
+  | { tipo: 'vozCancelarInstalacao' }
+  | { tipo: 'vozConfigurar'; dispositivo?: string; modelo?: ModeloVoz; idioma?: EstadoVoz['idioma']; envioAutomatico?: boolean }
+  | { tipo: 'leituraConfigurar'; ativa?: boolean; voz?: string; velocidade?: number }
+  | { tipo: 'lerMensagem'; id: string }                         // le uma fala especifica
+  | { tipo: 'pararLeitura' }
   | { tipo: 'abrirLink'; url: string }                         // passa pelo Portao (categoria navegador)
-  | { tipo: 'exportarConversa' };                              // unica saida de dados, sempre explicita
+  | { tipo: 'exportarConversa' }
+  // v4: chats
+  | { tipo: 'novoChat' }
+  | { tipo: 'listarChats'; busca?: string }                   // busca local em titulos e mensagens
+  | { tipo: 'abrirChat'; id: string }                         // host responde com 'estado' completo do chat
+  | { tipo: 'renomearChat'; id: string; titulo: string }
+  | { tipo: 'fixarChat'; id: string; fixado: boolean }
+  | { tipo: 'excluirChat'; id: string }                       // confirmacao ja feita na interface; apaga mensagens, acoes e anexos do chat
+  | { tipo: 'exportarChat'; id: string }
+  // v4: memoria
+  | { tipo: 'listarMemorias' }
+  | { tipo: 'salvarMemoria'; id?: string; escopo: Memoria['escopo']; texto: string; ativa?: boolean } // sem id = nova
+  | { tipo: 'excluirMemoria'; id: string };                              // unica saida de dados, sempre explicita
 
 // ---------- host -> webview ----------
 
@@ -195,7 +300,12 @@ export type DoHost =
   | { tipo: 'aprovacao'; pedido: PedidoAprovacao }
   | { tipo: 'aprovacaoResolvida'; id: string; decisao: DecisaoAprovacao | 'expirada' }
   | { tipo: 'configuracao'; configuracao: Configuracao }
-  | { tipo: 'voz'; gravando: boolean; transcricao?: string; erro?: string }
-  | { tipo: 'aviso'; nivel: 'info' | 'alerta' | 'erro'; texto: string };
+  | { tipo: 'voz'; gravando: boolean; transcricao?: string; erro?: string }  // v1, mantido
+  | { tipo: 'estadoVoz'; voz: EstadoVoz }                        // v3: estado completo da voz
+  | { tipo: 'vozInstalacao'; progresso: ProgressoInstalacaoVoz } // v3
+  | { tipo: 'aviso'; nivel: 'info' | 'alerta' | 'erro'; texto: string }
+  | { tipo: 'chats'; lista: ResumoChat[]; busca?: string }   // v4: resposta a listarChats e apos mudancas
+  | { tipo: 'chat'; chat: ResumoChat }                        // v4: chat atual mudou (titulo, contagem, fixado)
+  | { tipo: 'memorias'; lista: Memoria[] };                   // v4: resposta a listarMemorias e apos mudancas
 
 export const CONFIRMACAO_NIVEL_TOTAL = 'ACEITO OS RISCOS';

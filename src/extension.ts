@@ -47,7 +47,7 @@ export async function activate(
     join(pasta, 'orquestra.sqlite'),
     join(context.extensionPath, 'dist', 'sql-wasm.wasm'),
   );
-  await storage.iniciar();
+  await storage.iniciar({ sala: id, projeto, titulo: projeto ? basename(projeto) : 'Sala avulsa' });
   const sala = new Sala(id, projeto, projeto ? basename(projeto) : 'Sala avulsa', storage);
   const cfg = () => vscode.workspace.getConfiguration('fagulha');
   const opcoes = (id: string): OpcoesProvedor => {
@@ -125,8 +125,18 @@ export async function activate(
       limites: limitar(limites),
     });
   }
-  const voz = new VozLocal();
-  sala.voz = await voz.detectar();
+  const voz = new VozLocal({
+    emitir: (evento) => {
+      if (evento.tipo === 'estadoVoz') sala.voz = evento.voz;
+      sala.emitir(evento);
+    },
+    agentes: () => sala.agentes,
+    enviar: (texto) => sala.enviar(texto, []),
+    auditar: async (resumo) => {
+      await storage.gravar('auditoria', sala.id, randomUUID(), { resumo });
+    },
+  });
+  sala.voz = await voz.inicializar();
   const abrir = async (url: string) => {
     if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
       throw new Error('Nao foi possivel abrir navegador.');
@@ -162,7 +172,7 @@ export async function activate(
     );
     const capacidade = ponte.criar(agente.id, sinal);
     protegerSegredo(capacidade.token);
-    const diretorio = join(pasta, 'sessoes', sala.id, agente.id, randomUUID());
+    const diretorio = join(pasta, 'sessoes', sala.chat.id, agente.id, randomUUID());
     const regras: string[] = [];
     try {
       if (projeto && agente.modo !== 'escrita')
@@ -219,9 +229,28 @@ export async function activate(
   const views = new Set<vscode.Webview>();
   const broadcast = sala.observar((e) => {
     for (const v of views) void v.postMessage(e);
+    if (e.tipo === 'mensagem') voz.mensagem(e.mensagem);
   });
   const aviso = (texto: string) =>
     sala.emitir({ tipo: 'aviso', nivel: 'erro', texto: mascarar(texto) });
+  const prepararTroca = async () => {
+    await voz.descartar();
+    await voz.pararLeitura();
+  };
+  const exportarChat = async (id: string) => {
+    const mensagens = await sala.mensagensChat(id);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: projeto ? vscode.Uri.file(join(projeto, 'fagulha-conversa.md')) : undefined,
+      filters: { Markdown: ['md'] },
+    });
+    if (!uri) return;
+    const real = await caminhoReal(uri.fsPath, true);
+    await writeFile(
+      real,
+      mascarar(mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n')),
+      'utf8',
+    );
+  };
   const login = new GestorLogin({
     provedor: (id) => sala.provedores.get(id),
     emitir: (evento) => sala.emitir(evento),
@@ -242,6 +271,7 @@ export async function activate(
       ],
     };
     views.add(webview);
+    void vscode.commands.executeCommand('setContext', 'fagulha.painelAberto', true);
     webview.html = htmlWebview(webview, context.extensionUri);
     const listener = webview.onDidReceiveMessage(async (entrada) => {
       try {
@@ -249,6 +279,7 @@ export async function activate(
           protegerSegredo(entrada.chave);
         const m = validarMensagem(entrada);
         if (m.tipo === 'pronto') {
+          await sala.sincronizar();
           await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
           for (const progresso of login.progresso())
             await webview.postMessage({ tipo: 'login', progresso } satisfies DoHost);
@@ -256,12 +287,76 @@ export async function activate(
         }
         if (
           !vscode.workspace.isTrusted &&
-          !['parar', 'loginCancelar', 'responderAprovacao', 'carregarAnteriores'].includes(m.tipo)
+          ![
+            'parar',
+            'loginCancelar',
+            'responderAprovacao',
+            'carregarAnteriores',
+            'vozParar',
+            'vozDescartar',
+            'vozCancelarInstalacao',
+            'pararLeitura',
+            'vozIniciar',
+            'vozInstalar',
+            'vozConfigurar',
+            'leituraConfigurar',
+            'lerMensagem',
+            'novoChat',
+            'listarChats',
+            'abrirChat',
+            'renomearChat',
+            'fixarChat',
+            'excluirChat',
+            'exportarChat',
+            'listarMemorias',
+            'salvarMemoria',
+            'excluirMemoria',
+            'exportarConversa',
+          ].includes(m.tipo)
         )
           throw new Error(
             'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
           );
         switch (m.tipo) {
+          case 'novoChat':
+            await prepararTroca();
+            await sala.novoChat();
+            break;
+          case 'listarChats':
+            await sala.listarChats(m.busca);
+            break;
+          case 'abrirChat':
+            await prepararTroca();
+            await sala.abrirChat(m.id);
+            break;
+          case 'renomearChat':
+            await sala.renomearChat(m.id, m.titulo);
+            break;
+          case 'fixarChat':
+            await sala.fixarChat(m.id, m.fixado);
+            break;
+          case 'excluirChat': {
+            if (m.id === sala.chat.id) await prepararTroca();
+            const arquivos = await sala.excluirChat(m.id);
+            await anexador.excluirSemReferencia(arquivos, async (arquivo) =>
+              (await storage.listar<{ arquivo?: string }>('anexos')).some(
+                (a) => a.arquivo === arquivo,
+              ),
+            );
+            break;
+          }
+          case 'exportarChat':
+            await exportarChat(m.id);
+            break;
+          case 'listarMemorias':
+            await sala.atualizarMemorias();
+            break;
+          case 'salvarMemoria':
+            await sala.salvarMemoria(m);
+            break;
+          case 'excluirMemoria':
+            await sala.excluirMemoria(m.id);
+            break;
           case 'enviar':
             sala.enviar(m.texto, m.anexos);
             break;
@@ -307,11 +402,14 @@ export async function activate(
             break;
           case 'importarContexto': {
             const candidatos = await descobrirContextos();
-            const outras = await storage.listar<Mensagem>('mensagens');
-            const salas = [...new Set(outras.map((m) => m.sala))].filter((s) => s !== sala.id);
+            const chats = (await sala.chats.listar()).filter((c) => c.id !== sala.chat.id);
             const itens = [
               ...candidatos.map((c) => ({ label: c.titulo, description: c.origem, c })),
-              ...salas.map((s) => ({ label: s, description: 'Orquestrador Fagulha', s })),
+              ...chats.map((c) => ({
+                label: c.titulo,
+                description: c.projetoNome ?? 'Sem projeto',
+                s: c.id,
+              })),
             ];
             const selecionado = await vscode.window.showQuickPick(itens, {
               title: 'Importar contexto local',
@@ -320,8 +418,7 @@ export async function activate(
             if (selecionado && 'c' in selecionado)
               await sala.adicionarContexto(await importarContexto(selecionado.c));
             if (selecionado && 's' in selecionado) {
-              const texto = outras
-                .filter((m) => m.sala === selecionado.s)
+              const texto = (await sala.mensagensChat(selecionado.s))
                 .map((m) => `${m.autor}: ${m.texto}`)
                 .join('\n')
                 .slice(-12000);
@@ -341,7 +438,7 @@ export async function activate(
             await sala.removerContexto(m.id);
             break;
           case 'responderAprovacao':
-            sala.portao.responder(m.id, m.decisao);
+            await sala.responderAprovacao(m.id, m.decisao);
             break;
           case 'agenteHabilitar':
             await sala.atualizarAgente(m.id, { habilitado: m.habilitado });
@@ -435,11 +532,38 @@ export async function activate(
           case 'vozIniciar':
             await voz.iniciar();
             break;
-          case 'vozParar': {
-            const transcricao = await voz.parar();
-            sala.emitir({ tipo: 'voz', gravando: false, transcricao });
+          case 'vozParar':
+            await voz.parar();
+            break;
+          case 'vozDescartar':
+            await voz.descartar();
+            break;
+          case 'vozInstalar':
+            await voz.instalar(m.componentes);
+            break;
+          case 'vozCancelarInstalacao':
+            voz.cancelarInstalacao();
+            break;
+          case 'vozConfigurar': {
+            const { tipo, ...parcial } = m;
+            await voz.configurar(parcial);
             break;
           }
+          case 'leituraConfigurar': {
+            const { tipo, ...parcial } = m;
+            await voz.configurarLeitura(parcial);
+            break;
+          }
+          case 'lerMensagem': {
+            const mensagem = sala.mensagens.find((x) => x.id === m.id);
+            if (!mensagem) throw new Error('Mensagem não encontrada.');
+            await voz.pararLeitura();
+            await voz.ler(mensagem);
+            break;
+          }
+          case 'pararLeitura':
+            await voz.pararLeitura();
+            break;
           case 'abrirLink':
             await sala.portao.executar(
               {
@@ -453,19 +577,7 @@ export async function activate(
             );
             break;
           case 'exportarConversa': {
-            const uri = await vscode.window.showSaveDialog({
-              defaultUri: projeto
-                ? vscode.Uri.file(join(projeto, 'orquestra-conversa.md'))
-                : undefined,
-              filters: { Markdown: ['md'] },
-            });
-            if (!uri) break;
-            const real = await caminhoReal(uri.fsPath, true);
-            await writeFile(
-              real,
-              sala.mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n'),
-              'utf8',
-            );
+            await exportarChat(sala.chat.id);
             break;
           }
         }
@@ -475,6 +587,7 @@ export async function activate(
     });
     const disposal = descartado(() => {
       views.delete(webview);
+      void vscode.commands.executeCommand('setContext', 'fagulha.painelAberto', views.size > 0);
       listener.dispose();
       disposal.dispose();
     });
@@ -492,6 +605,15 @@ export async function activate(
     ),
   );
   context.subscriptions.push(
+    vscode.commands.registerCommand('fagulha.vozAlternar', async () => {
+      if (!views.size) return;
+      try {
+        if (voz.estado.gravando) await voz.parar();
+        else await voz.iniciar();
+      } catch (e) {
+        aviso((e as Error).message);
+      }
+    }),
     vscode.commands.registerCommand('fagulha.abrirNoEditor', () => {
       const panel = vscode.window.createWebviewPanel(
         'fagulha.sala',
@@ -504,6 +626,7 @@ export async function activate(
     }),
   );
   encerrar = async () => {
+    await voz.finalizar();
     await login.finalizar();
     sala.parar();
     broadcast();

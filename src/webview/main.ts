@@ -3,7 +3,7 @@
 // Fala com o host somente pelos tipos de src/shared/protocolo.ts.
 import {
   CONFIRMACAO_NIVEL_TOTAL, VERSAO_PROTOCOLO,
-  type Agente, type DoHost, type OpcaoLogin, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao,
+  type Agente, type ComponenteVoz, type DoHost, type EstadoVoz, type ItemInstalacaoVoz, type Memoria, type ModeloVoz, type OpcaoLogin, type ProgressoInstalacaoVoz, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao, type ResumoChat,
 } from '../shared/protocolo';
 import { renderMarkdown } from './markdown';
 import { botaoIcone, bytes, enviar, h, hora, icone, local, ouvir, salvarLocal, type Vista } from './util';
@@ -45,7 +45,7 @@ const MODOS: Record<ModoAgente, string> = { leitura_escrita: 'Leitura e escrita'
 const CATEGORIAS: Record<string, string> = {
   leitura_workspace: 'Ler no projeto', escrita_workspace: 'Escrever no projeto', leitura_maquina: 'Ler fora do projeto',
   escrita_maquina: 'Escrever fora do projeto', comando: 'Executar comando', rede_leitura: 'Acessar a web', navegador: 'Navegador externo',
-  externo: 'Sistema externo', publicacao: 'Publicar ou enviar', credencial: 'Usar credencial', destrutiva: 'Acao destrutiva',
+  externo: 'Sistema externo', publicacao: 'Publicar ou enviar', credencial: 'Usar credencial', destrutiva: 'Acao destrutiva', memoria: 'Guardar na memoria',
 };
 const LOGIN: Record<string, string> = { conectado: 'conectado', chave_configurada: 'chave configurada', desconectado: 'desconectado', desconhecido: 'login desconhecido' };
 
@@ -65,11 +65,14 @@ function renderCabecalho(): void {
   cabecalho.replaceChildren(
     h('div', { class: 'titulo' },
       h('span', { class: 'canal', title: 'Orquestrador Fagulha' }, '#fagulha_orquestrador'),
-      h('span', { class: 'projeto', title: E.sala.projeto ?? 'sem pasta aberta' }, E.sala.titulo)),
+      h('span', { class: 'projeto', title: `${E.chat.titulo}\n${E.chat.projeto ?? 'Sem projeto'}` }, E.chat.titulo)),
     h('div', { class: 'acoes' },
       trabalhando ? botaoIcone('parar', 'Parar o agente atual', () => enviar({ tipo: 'parar' }), 'perigo') : null,
       h('span', { class: `nivel n-${E.configuracao.nivel}`, title: `Nivel de permissao: ${NIVEIS[E.configuracao.nivel].titulo}` },
         icone('escudo'), NIVEIS[E.configuracao.nivel].titulo),
+      btnLeitura,
+      botaoIcone('mais', 'Novo chat', () => { enviar({ tipo: 'novoChat' }); irPara('chat'); }),
+      botaoIcone('chats', 'Chats e memoria', () => (vista === 'chats' ? irPara('chat') : abrirChats()), vista === 'chats' ? 'ativo' : ''),
       botaoIcone('pessoas', 'Agentes', () => irPara(vista === 'agentes' ? 'chat' : 'agentes'), vista === 'agentes' ? 'ativo' : ''),
       botaoIcone('engrenagem', 'Configuracoes', () => irPara(vista === 'config' ? 'chat' : 'config'), vista === 'config' ? 'ativo' : '')),
   );
@@ -129,7 +132,7 @@ const cache = new Map<string, { chave: string; el: HTMLElement }>();
 let fimAnteriores = false;
 
 function elMensagem(m: Mensagem): HTMLElement {
-  const chave = `${m.tipo}|${m.parcial ? 1 : 0}|${m.texto}|${(m.anexos ?? []).map((a) => a.id).join(',')}`;
+  const chave = `${m.tipo}|${m.parcial ? 1 : 0}|${m.texto}|${(m.anexos ?? []).map((a) => a.id).join(',')}|${E?.voz.leitura.disponivel ? 1 : 0}|${E?.voz.leitura.falando === m.id ? 1 : 0}`;
   const c = cache.get(m.id);
   if (c && c.chave === chave) return c.el;
   let el: HTMLElement;
@@ -137,7 +140,7 @@ function elMensagem(m: Mensagem): HTMLElement {
   if (m.tipo === 'fala') {
     const anexos = m.anexos ?? [];
     el = h('article', { class: `msg fala ${ag ? `c-${ag.cor}` : 'usuario'} ${m.parcial ? 'parcial' : ''}` },
-      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), h('time', { datetime: m.quando }, hora(m.quando))),
+      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), h('time', { datetime: m.quando }, hora(m.quando)), ag ? botaoOuvir(m) : null),
       renderMarkdown(m.texto),
       anexos.length ? h('div', { class: 'msg-anexos' }, ...anexos.map((a) => h('span', { class: `chip anexo-mini t-${a.tipo}` }, icone('clipe'), a.nome))) : null);
   } else if (m.tipo === 'acao') {
@@ -174,6 +177,10 @@ function renderMensagens(): void {
     }
     filhos.push(elMensagem(ms[i]));
   }
+  if (!E.chat.desteProjeto) {
+    filhos.unshift(h('div', { class: 'aviso-chat', role: 'note' },
+      `Este chat foi criado em ${E.chat.projetoNome ?? 'uma janela sem projeto'}. Os agentes trabalham na pasta desta janela (${E.sala.titulo}).`));
+  }
   if (!ms.length) filhos.push(boasVindas());
   lista.replaceChildren(...filhos);
   if (perto) lista.scrollTop = lista.scrollHeight;
@@ -182,9 +189,10 @@ function renderMensagens(): void {
 function boasVindas(): HTMLElement {
   const nomes = E?.agentes.filter((a) => a.habilitado && a.instalado).map((a) => `@${a.nick.toLowerCase()}`) ?? [];
   return h('div', { class: 'boas-vindas' },
-    h('h2', {}, 'Sala vazia'),
+    h('h2', {}, 'Novo chat'),
     h('p', {}, nomes.length ? `Mencione ${nomes.join(', ')} ou @todos para acionar. Sem mencao, a mensagem fica so registrada.` : 'Habilite um agente para comecar.'),
-    h('p', { class: 'nota' }, 'Tudo o que acontece aqui fica gravado somente neste computador.'));
+    E?.memoriasAtivas ? h('p', { class: 'nota' }, `${E.memoriasAtivas} ${E.memoriasAtivas === 1 ? 'memoria sera enviada' : 'memorias serao enviadas'} aos agentes.`) : null,
+    h('p', { class: 'nota' }, 'Conversas anteriores ficam no menu Chats. Tudo fica gravado somente neste computador.'));
 }
 
 let agendado = false;
@@ -198,11 +206,13 @@ function renderMensagensDepois(): void {
 const chipsComposer = h('div', { class: 'chips-composer' });
 const texto = h('textarea', { class: 'entrada', rows: 1, placeholder: 'Mensagem para a sala. Use @ para mencionar.', 'aria-label': 'Mensagem' });
 const sugestoes = h('ul', { class: 'sugestoes', role: 'listbox', hidden: true });
+const barraGravacao = h('div', { class: 'barra-gravacao', role: 'status', hidden: true });
 const btnVoz = botaoIcone('mic', 'Falar (transcricao local)', () => alternarVoz());
+const btnLeitura = botaoIcone('som', 'Leitura automatica das respostas', () => { if (E) enviar({ tipo: 'leituraConfigurar', ativa: !E.voz.leitura.ativa }); });
 const btnEnviar = h('button', { class: 'bi enviar', type: 'button', title: 'Enviar (Enter)', 'aria-label': 'Enviar', onclick: () => enviarMensagem() }, icone('enviar'));
 const avisoLocal = h('div', { class: 'aviso-local', role: 'status', hidden: true });
 composer.append(
-  avisoLocal, chipsComposer,
+  avisoLocal, barraGravacao, chipsComposer,
   h('div', { class: 'caixa' }, sugestoes, texto),
   h('div', { class: 'barra' },
     botaoIcone('clipe', 'Anexar arquivos', () => enviar({ tipo: 'anexarArquivos' })),
@@ -230,6 +240,7 @@ function enviarMensagem(): void {
   const t = texto.value.trim();
   const anexos = (E?.anexosPendentes ?? []).filter((a) => a.tratamento !== 'recusado').map((a) => a.id);
   if (!t && !anexos.length) return;
+  if (!anexos.length && comandoMemoria(t)) { texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes(); return; }
   enviar({ tipo: 'enviar', texto: t, anexos });
   texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes();
 }
@@ -341,16 +352,302 @@ app.addEventListener('drop', (e) => {
   if (uris.length) enviar({ tipo: 'anexarCaminhos', uris });
 });
 
-// ---------- voz ----------
+// ---------- voz: falar e ouvir (v3) ----------
+const progressoVoz = new Map<ComponenteVoz, ProgressoInstalacaoVoz>();
+const NOMES_MODELO: Record<ModeloVoz, string> = {
+  base: 'base (~150 MB, mais rapido)',
+  small: 'small (~490 MB, recomendado para portugues)',
+  medium: 'medium (~1,5 GB, mais preciso e mais lento)',
+};
+const minSeg = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
 function alternarVoz(): void {
-  if (!E?.voz.disponivel) return avisar(E?.voz.motivo ?? 'Voz indisponivel.');
+  if (!E) return;
+  if (E.voz.transcrevendo) return;
+  if (!E.voz.disponivel) {
+    avisar(E.voz.motivo ?? 'Voz ainda nao configurada.');
+    irPara('config');
+    requestAnimationFrame(() => document.getElementById('config-voz')?.scrollIntoView({ block: 'start' }));
+    return;
+  }
+  if (E.voz.leitura.falando) enviar({ tipo: 'pararLeitura' });
   enviar({ tipo: E.voz.gravando ? 'vozParar' : 'vozIniciar' });
 }
+
 function renderVoz(): void {
   if (!E) return;
-  btnVoz.classList.toggle('gravando', E.voz.gravando);
-  btnVoz.classList.toggle('indisponivel', !E.voz.disponivel);
-  btnVoz.title = !E.voz.disponivel ? `Voz indisponivel: ${E.voz.motivo ?? ''}` : E.voz.gravando ? 'Parar e transcrever' : 'Falar (transcricao local)';
+  const v = E.voz;
+  btnVoz.classList.toggle('gravando', v.gravando);
+  btnVoz.classList.toggle('indisponivel', !v.disponivel);
+  btnVoz.classList.toggle('ocupado', v.transcrevendo);
+  btnVoz.title = !v.disponivel ? `Configurar voz: ${v.motivo ?? ''}` : v.transcrevendo ? 'Transcrevendo...' : v.gravando ? 'Parar e transcrever' : 'Falar (transcricao local)';
+  btnVoz.setAttribute('aria-pressed', v.gravando ? 'true' : 'false');
+  if (v.gravando || v.transcrevendo) {
+    const seg = v.segundosGravados ?? 0;
+    barraGravacao.replaceChildren(
+      v.transcrevendo
+        ? h('span', {}, h('span', { class: 'girando', 'aria-hidden': 'true' }), ' Transcrevendo no seu computador...')
+        : h('span', {}, h('span', { class: 'ponto-gravando', 'aria-hidden': 'true' }), ` Gravando ${minSeg(seg)} / ${minSeg(v.limiteSegundos)}`),
+      ...(v.gravando ? [h('span', { class: 'acoes-gravacao' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: () => enviar({ tipo: 'vozParar' }) }, v.envioAutomatico ? 'Parar e enviar' : 'Parar e transcrever'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => enviar({ tipo: 'vozDescartar' }) }, 'Descartar'))] : []));
+    barraGravacao.hidden = false;
+  } else {
+    barraGravacao.hidden = true;
+  }
+  btnLeitura.classList.toggle('ativo', v.leitura.ativa);
+  btnLeitura.hidden = !v.leitura.disponivel;
+  btnLeitura.title = v.leitura.ativa ? 'Leitura automatica das respostas: ligada' : 'Leitura automatica das respostas: desligada';
+  btnLeitura.setAttribute('aria-pressed', v.leitura.ativa ? 'true' : 'false');
+}
+
+// Botao "ouvir" de cada fala de agente.
+function botaoOuvir(m: Mensagem): HTMLElement | null {
+  if (!E?.voz.leitura.disponivel || m.parcial) return null;
+  const falando = E.voz.leitura.falando === m.id;
+  return h('button', {
+    class: `bi ouvir ${falando ? 'ativo' : ''}`, type: 'button',
+    title: falando ? 'Parar leitura' : 'Ouvir esta resposta', 'aria-label': falando ? 'Parar leitura' : 'Ouvir esta resposta',
+    onclick: () => enviar(falando ? { tipo: 'pararLeitura' } : { tipo: 'lerMensagem', id: m.id }),
+  }, icone(falando ? 'parar' : 'som'));
+}
+
+function secaoVoz(): HTMLElement {
+  const v = E!.voz;
+  const faltando = v.componentes.filter((c) => c.situacao === 'ausente' || c.situacao === 'erro');
+  const instalando = v.componentes.some((c) => c.situacao === 'instalando');
+  const total = faltando.reduce((s, c) => s + (c.tamanhoBytes ?? 0), 0);
+
+  const linhaComponente = (c: ItemInstalacaoVoz) => {
+    const p = progressoVoz.get(c.componente);
+    const pct = p?.totalBytes ? Math.round(((p.baixadoBytes ?? 0) / p.totalBytes) * 100) : undefined;
+    return h('li', { class: `comp-voz s-${c.situacao}` },
+      h('div', { class: 'linha' },
+        h('strong', {}, c.nome),
+        h('span', { class: 'estado-comp' }, ({ instalado: 'instalado', ausente: 'nao instalado', instalando: 'instalando', erro: 'erro', manual: 'instalacao manual' } as const)[c.situacao]),
+        c.tamanhoBytes && c.situacao !== 'instalado' ? h('span', { class: 'nota' }, bytes(c.tamanhoBytes)) : null,
+        c.origem && c.situacao !== 'instalado' ? h('span', { class: 'nota' }, `de ${c.origem}`) : null),
+      c.situacao === 'instalando' && p
+        ? h('div', { class: 'progresso-voz' },
+          h('progress', { max: 100, value: pct ?? 0, 'aria-label': `Progresso de ${c.nome}` }),
+          h('span', { class: 'nota' }, p.etapa === 'baixando' ? `${pct ?? 0}%${p.totalBytes ? ` de ${bytes(p.totalBytes)}` : ''}` : p.etapa === 'verificando' ? 'conferindo integridade...' : p.etapa === 'extraindo' ? 'extraindo...' : (p.mensagem ?? '')))
+        : null,
+      c.situacao === 'manual' && c.comandoManual
+        ? h('div', { class: 'comando-manual' }, h('code', {}, c.comandoManual),
+          botaoIcone('copiar', 'Copiar comando', () => void navigator.clipboard.writeText(c.comandoManual!)))
+        : null,
+      c.mensagem && (c.situacao === 'erro' || c.situacao === 'manual') ? h('p', { class: `nota ${c.situacao === 'erro' ? 'erro-texto' : ''}` }, c.mensagem) : null);
+  };
+
+  const selecao = <T extends string>(rotulo: string, valor: string | undefined, opcoes: [string, string][], aoMudar: (v: T) => void, desabilitado = false) => {
+    const s = h('select', { class: 'campo', disabled: desabilitado }, ...opcoes.map(([id, nome]) => h('option', { value: id, selected: id === (valor ?? '') }, nome)));
+    s.addEventListener('change', () => aoMudar(s.value as T));
+    return h('label', { class: 'rotulo' }, rotulo, s);
+  };
+  const caixa = (rotulo: string, marcado: boolean, aoMudar: (v: boolean) => void) => {
+    const c = h('input', { type: 'checkbox', checked: marcado });
+    c.addEventListener('change', () => aoMudar(c.checked));
+    return h('label', { class: 'caixa' }, c, ` ${rotulo}`);
+  };
+  const velocidade = h('input', { type: 'range', min: 0.5, max: 2, step: 0.1, value: v.leitura.velocidade, 'aria-label': 'Velocidade da leitura' });
+  const rotuloVel = h('span', { class: 'nota' }, `${v.leitura.velocidade.toFixed(1)}x`);
+  velocidade.addEventListener('input', () => { rotuloVel.textContent = `${Number(velocidade.value).toFixed(1)}x`; });
+  velocidade.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', velocidade: Number(velocidade.value) }));
+
+  return h('section', { id: 'config-voz', class: 'secao-voz' },
+    h('h3', {}, 'Voz'),
+    h('p', { class: 'nota' }, 'Fala e audio sao processados somente neste computador. A gravacao e apagada logo apos a transcricao.'),
+    h('h4', {}, 'Falar'),
+    h('ul', { class: 'lista-comp' }, ...v.componentes.map(linhaComponente)),
+    faltando.length && !instalando
+      ? h('div', { class: 'consentimento' },
+        h('p', {}, `Para usar a voz, o Orquestrador precisa baixar ${faltando.length === 1 ? 'um componente' : `${faltando.length} componentes`}${total ? ` (${bytes(total)} no total)` : ''} das fontes oficiais listadas acima. Os arquivos ficam em ~/.orquestra/voz, sem alterar o sistema.`),
+        h('button', { class: 'btn primario', type: 'button', onclick: () => enviar({ tipo: 'vozInstalar', componentes: faltando.map((c) => c.componente) }) }, `Baixar e instalar${total ? ` (${bytes(total)})` : ''}`))
+      : null,
+    instalando ? h('button', { class: 'btn pequeno', type: 'button', onclick: () => enviar({ tipo: 'vozCancelarInstalacao' }) }, 'Cancelar instalacao') : null,
+    h('div', { class: 'grade' },
+      selecao('Microfone', v.dispositivo, [['', 'Padrao do sistema'], ...v.dispositivos.map((d) => [d.id, d.nome] as [string, string])], (d) => enviar({ tipo: 'vozConfigurar', dispositivo: d }), !v.dispositivos.length),
+      selecao<ModeloVoz>('Modelo de transcricao', v.modelo, (Object.keys(NOMES_MODELO) as ModeloVoz[]).map((m) => [m, NOMES_MODELO[m]]), (m) => enviar({ tipo: 'vozConfigurar', modelo: m })),
+      selecao<EstadoVoz['idioma']>('Idioma da fala', v.idioma, [['pt', 'Portugues'], ['en', 'Ingles'], ['es', 'Espanhol'], ['auto', 'Detectar automaticamente']], (i) => enviar({ tipo: 'vozConfigurar', idioma: i }))),
+    caixa('Enviar a mensagem automaticamente apos transcrever', v.envioAutomatico, (b) => enviar({ tipo: 'vozConfigurar', envioAutomatico: b })),
+    h('p', { class: 'nota' }, `Cada gravacao tem no maximo ${minSeg(v.limiteSegundos)}.`),
+    h('h4', {}, 'Ouvir'),
+    !v.leitura.disponivel
+      ? h('p', { class: 'nota' }, v.leitura.motivo ?? 'Nenhuma voz do sistema foi encontrada.')
+      : h('div', { class: 'pilha' },
+        caixa('Ler automaticamente as respostas dos agentes', v.leitura.ativa, (b) => enviar({ tipo: 'leituraConfigurar', ativa: b })),
+        h('div', { class: 'grade' },
+          selecao('Voz', v.leitura.voz, v.leitura.vozes.map((x) => [x.id, x.nome] as [string, string]), (id) => enviar({ tipo: 'leituraConfigurar', voz: id }), !v.leitura.vozes.length),
+          h('label', { class: 'rotulo' }, 'Velocidade', h('span', { class: 'linha' }, velocidade, rotuloVel))),
+        h('p', { class: 'nota' }, 'A leitura usa a voz instalada no seu sistema operacional. Blocos de codigo nao sao lidos.')));
+}
+
+// ---------- chats e memoria persistente (v4) ----------
+let listaChats: ResumoChat[] = [];
+let buscaAtual = '';
+let memorias: Memoria[] = [];
+let abaChats: 'conversas' | 'memoria' = 'conversas';
+let renomeando: string | null = null;
+let excluindo: string | null = null;
+let editandoMemoria: string | null = null;
+let temporizadorBusca: number | undefined;
+const campoBusca = h('input', { class: 'campo busca', type: 'search', placeholder: 'Buscar em titulos e mensagens', 'aria-label': 'Buscar chats' });
+campoBusca.addEventListener('input', () => {
+  clearTimeout(temporizadorBusca);
+  temporizadorBusca = window.setTimeout(() => enviar({ tipo: 'listarChats', busca: campoBusca.value.trim() || undefined }), 250);
+});
+const novaMemoria = h('textarea', { class: 'campo', rows: 2, maxlength: 500, placeholder: 'Ex.: Use pnpm neste projeto. Respostas sempre em portugues formal.', 'aria-label': 'Nova memoria' });
+
+function quandoRelativo(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const hoje = new Date();
+  const dias = Math.floor((new Date(hoje.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86400000);
+  const hm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (dias === 0) return `hoje, ${hm}`;
+  if (dias === 1) return `ontem, ${hm}`;
+  if (dias < 7) return d.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: dias > 300 ? '2-digit' : undefined });
+}
+
+function abrirChats(aba: typeof abaChats = 'conversas'): void {
+  abaChats = aba;
+  if (aba === 'conversas') enviar({ tipo: 'listarChats', busca: buscaAtual || undefined });
+  else enviar({ tipo: 'listarMemorias' });
+  irPara('chats');
+}
+
+function itemChat(c: ResumoChat): HTMLElement {
+  const atual = E?.chat.id === c.id;
+  if (renomeando === c.id) {
+    const inp = h('input', { class: 'campo', type: 'text', value: c.titulo, maxlength: 120, 'aria-label': 'Novo titulo' });
+    const salvar = () => { const t = inp.value.trim(); if (t && t !== c.titulo) enviar({ tipo: 'renomearChat', id: c.id, titulo: t }); renomeando = null; renderTudo(); };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') salvar(); if (e.key === 'Escape') { renomeando = null; renderTudo(); } });
+    requestAnimationFrame(() => { inp.focus(); inp.select(); });
+    return h('li', { class: 'chat-item editando' }, inp,
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: salvar }, 'Salvar'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { renomeando = null; renderTudo(); } }, 'Cancelar')));
+  }
+  if (excluindo === c.id) {
+    return h('li', { class: 'chat-item confirmar', role: 'alertdialog', 'aria-label': `Excluir ${c.titulo}` },
+      h('p', {}, `Excluir "${c.titulo}" definitivamente? As ${c.mensagens} mensagens, acoes e anexos deste chat serao apagados deste computador.`),
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno perigo', type: 'button', onclick: () => { enviar({ tipo: 'excluirChat', id: c.id }); excluindo = null; } }, 'Excluir'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { excluindo = null; renderTudo(); } }, 'Cancelar')));
+  }
+  const meta = [c.desteProjeto ? null : (c.projetoNome ?? 'Sem projeto'), quandoRelativo(c.atualizadoEm), `${c.mensagens} ${c.mensagens === 1 ? 'mensagem' : 'mensagens'}`, c.agentes.length ? c.agentes.join(', ') : null]
+    .filter(Boolean).join(' · ');
+  return h('li', { class: `chat-item ${atual ? 'atual' : ''}` },
+    h('button', {
+      class: 'chat-abrir', type: 'button', 'aria-current': atual ? 'true' : undefined,
+      onclick: () => { if (!atual) enviar({ tipo: 'abrirChat', id: c.id }); irPara('chat'); },
+    },
+      h('span', { class: 'chat-titulo' }, c.fixado ? icone('fixar') : null, c.titulo, atual ? h('span', { class: 'tag' }, 'aberto') : null),
+      h('span', { class: 'chat-meta' }, meta),
+      c.trecho ? h('span', { class: 'chat-trecho' }, c.trecho) : null),
+    h('span', { class: 'chat-acoes' },
+      botaoIcone('fixar', c.fixado ? 'Desafixar' : 'Fixar no topo', () => enviar({ tipo: 'fixarChat', id: c.id, fixado: !c.fixado }), c.fixado ? 'ativo' : ''),
+      botaoIcone('lapis', 'Renomear', () => { renomeando = c.id; renderTudo(); }),
+      botaoIcone('exportar', 'Exportar em Markdown', () => enviar({ tipo: 'exportarChat', id: c.id })),
+      botaoIcone('lixeira', 'Excluir', () => { excluindo = c.id; renderTudo(); })));
+}
+
+function grupoChats(titulo: string, itens: ResumoChat[]): HTMLElement | null {
+  if (!itens.length) return null;
+  return h('section', { class: 'grupo-chats' }, h('h3', {}, titulo), h('ul', { class: 'lista-chats' }, ...itens.map(itemChat)));
+}
+
+function abaConversas(): HTMLElement {
+  if (document.activeElement !== campoBusca && campoBusca.value !== buscaAtual) campoBusca.value = buscaAtual;
+  const ordenar = (a: ResumoChat, b: ResumoChat) => b.atualizadoEm.localeCompare(a.atualizadoEm);
+  const fixados = listaChats.filter((c) => c.fixado).sort(ordenar);
+  const resto = listaChats.filter((c) => !c.fixado).sort(ordenar);
+  const grupos = buscaAtual
+    ? [grupoChats(`Resultados para "${buscaAtual}"`, [...fixados, ...resto])]
+    : [
+      grupoChats('Fixados', fixados),
+      grupoChats('Este projeto', resto.filter((c) => c.desteProjeto)),
+      grupoChats('Outros projetos', resto.filter((c) => !c.desteProjeto && c.projeto)),
+      grupoChats('Sem projeto', resto.filter((c) => !c.desteProjeto && !c.projeto)),
+    ];
+  const vazio = !listaChats.length;
+  return h('div', { class: 'pilha' },
+    h('div', { class: 'linha' }, campoBusca,
+      h('button', { class: 'btn primario', type: 'button', onclick: () => { enviar({ tipo: 'novoChat' }); irPara('chat'); } }, icone('mais'), ' Novo chat')),
+    vazio ? h('p', { class: 'nota' }, buscaAtual ? 'Nenhum chat encontrado.' : 'Nenhum chat ainda.') : null,
+    ...grupos);
+}
+
+function itemMemoria(m: Memoria): HTMLElement {
+  if (editandoMemoria === m.id) {
+    const ta = h('textarea', { class: 'campo', rows: 3, maxlength: 500, 'aria-label': 'Editar memoria' });
+    ta.value = m.texto;
+    requestAnimationFrame(() => ta.focus());
+    return h('li', { class: 'memoria editando' }, ta,
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: () => { const t = ta.value.trim(); if (t) enviar({ tipo: 'salvarMemoria', id: m.id, escopo: m.escopo, texto: t, ativa: m.ativa }); editandoMemoria = null; } }, 'Salvar'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { editandoMemoria = null; renderTudo(); } }, 'Cancelar')));
+  }
+  const chave = h('input', { type: 'checkbox', checked: m.ativa, 'aria-label': m.ativa ? 'Desativar memoria' : 'Ativar memoria' });
+  chave.addEventListener('change', () => enviar({ tipo: 'salvarMemoria', id: m.id, escopo: m.escopo, texto: m.texto, ativa: chave.checked }));
+  return h('li', { class: `memoria ${m.ativa ? '' : 'off'}` },
+    h('label', { class: 'interruptor', title: m.ativa ? 'Enviada aos agentes' : 'Guardada, mas nao enviada' }, chave, h('span', { class: 'trilho' })),
+    h('div', { class: 'memoria-corpo' },
+      h('p', {}, m.texto),
+      h('span', { class: 'nota' }, [m.origem === 'agente' ? `proposta por ${m.agente ?? 'agente'}` : 'adicionada por voce', quandoRelativo(m.atualizadaEm)].join(' · '))),
+    h('span', { class: 'chat-acoes' },
+      botaoIcone('lapis', 'Editar', () => { editandoMemoria = m.id; renderTudo(); }),
+      botaoIcone('lixeira', 'Excluir', () => enviar({ tipo: 'excluirMemoria', id: m.id }))));
+}
+
+function abaMemoria(): HTMLElement {
+  const projeto = E?.sala.projeto ?? null;
+  const escopo = h('select', { class: 'campo', 'aria-label': 'Escopo da memoria' },
+    projeto ? h('option', { value: 'projeto', selected: true }, `Deste projeto (${E?.sala.titulo})`) : null,
+    h('option', { value: 'global', selected: !projeto }, 'Global (todos os projetos)'));
+  const salvar = () => {
+    const t = novaMemoria.value.trim();
+    if (!t) return;
+    enviar({ tipo: 'salvarMemoria', escopo: escopo.value as Memoria['escopo'], texto: t });
+    novaMemoria.value = '';
+  };
+  const globais = memorias.filter((m) => m.escopo === 'global');
+  const deste = memorias.filter((m) => m.escopo === 'projeto' && m.projeto === projeto);
+  const outros = memorias.filter((m) => m.escopo === 'projeto' && m.projeto !== projeto);
+  const grupo = (t: string, itens: Memoria[], nota?: string) => itens.length
+    ? h('section', { class: 'grupo-chats' }, h('h3', {}, t), nota ? h('p', { class: 'nota' }, nota) : null, h('ul', { class: 'lista-memorias' }, ...itens.map(itemMemoria)))
+    : null;
+  return h('div', { class: 'pilha' },
+    h('p', { class: 'nota' }, 'Fatos que os agentes recebem em todos os chats: preferencias, decisoes e convencoes. Os agentes podem propor memorias, mas so voce aprova. Nao guarde senhas ou chaves aqui.'),
+    h('div', { class: 'nova-memoria' }, novaMemoria,
+      h('div', { class: 'linha' }, escopo, h('button', { class: 'btn primario', type: 'button', onclick: salvar }, 'Lembrar'))),
+    h('p', { class: 'nota' }, 'Atalho no chat: /lembrar texto (deste projeto) ou /lembrar-global texto.'),
+    grupo('Global', globais),
+    grupo(projeto ? 'Deste projeto' : 'Sem projeto', deste),
+    grupo('Outros projetos', outros, 'Nao sao enviadas nesta janela.'),
+    !memorias.length ? h('p', { class: 'nota' }, 'Nenhuma memoria ainda.') : null);
+}
+
+function vistaChats(): HTMLElement {
+  const aba = (id: typeof abaChats, rotulo: string) => h('button', {
+    class: `aba ${abaChats === id ? 'sel' : ''}`, type: 'button', role: 'tab', 'aria-selected': abaChats === id ? 'true' : 'false',
+    onclick: () => abrirChats(id),
+  }, rotulo);
+  return h('div', { class: 'pagina' },
+    h('div', { class: 'pagina-topo' }, botaoIcone('voltar', 'Voltar ao chat', () => irPara('chat')), h('h2', {}, 'Chats')),
+    h('div', { class: 'abas', role: 'tablist' }, aba('conversas', 'Conversas'), aba('memoria', `Memoria${E?.memoriasAtivas ? ` (${E.memoriasAtivas})` : ''}`)),
+    abaChats === 'conversas' ? abaConversas() : abaMemoria());
+}
+
+// Atalhos do composer: /lembrar e /lembrar-global.
+function comandoMemoria(t: string): boolean {
+  const m = t.match(/^\/lembrar(-global)?\s+([\s\S]+)$/i);
+  if (!m) return false;
+  const global = !!m[1] || !E?.sala.projeto;
+  enviar({ tipo: 'salvarMemoria', escopo: global ? 'global' : 'projeto', texto: m[2].trim().slice(0, 500) });
+  avisar(`Guardado na memoria ${global ? 'global' : 'deste projeto'}.`);
+  return true;
 }
 
 // ---------- vistas: agentes e configuracoes ----------
@@ -560,6 +857,7 @@ function vistaConfig(): HTMLElement {
       campoNumero('Texto: tamanho maximo (MB)', l.textoMaxMB, 1, 2, lim('textoMaxMB')),
       campoNumero('Imagem: tamanho maximo (MB)', l.imagemMaxMB, 1, 10, lim('imagemMaxMB')),
       campoNumero('PDF/Word: tamanho maximo (MB)', l.documentoMaxMB, 1, 20, lim('documentoMaxMB'))),
+    secaoVoz(),
     h('h3', {}, 'Dados'),
     h('p', { class: 'nota' }, 'Conversas, acoes e anexos ficam somente neste computador, em ~/.orquestra/dados. Nada e enviado sem seu pedido.'),
     h('button', { class: 'btn', type: 'button', onclick: () => enviar({ tipo: 'exportarConversa' }) }, icone('exportar'), ' Exportar esta conversa'));
@@ -615,6 +913,7 @@ function renderTudo(): void {
   if (assistente) vistaExtra.replaceChildren(vistaAssistente());
   else if (vista === 'agentes') vistaExtra.replaceChildren(vistaAgentes());
   else if (vista === 'config') vistaExtra.replaceChildren(vistaConfig());
+  else if (vista === 'chats') vistaExtra.replaceChildren(vistaChats());
   else vistaExtra.replaceChildren();
   if (chat) renderMensagens();
   ajustarAltura();
@@ -646,12 +945,40 @@ ouvir((m: DoHost) => {
     case 'aprovacao': E.aprovacoes = substituir(E.aprovacoes, m.pedido); renderAprovacoes(); break;
     case 'aprovacaoResolvida': E.aprovacoes = E.aprovacoes.filter((p) => p.id !== m.id); renderAprovacoes(); break;
     case 'configuracao': E.configuracao = m.configuracao; renderTudo(); break;
+    case 'estadoVoz': {
+      const falandoAntes = E.voz.leitura.falando;
+      E.voz = m.voz;
+      for (const c of m.voz.componentes) if (c.situacao !== 'instalando') progressoVoz.delete(c.componente);
+      if (falandoAntes !== m.voz.leitura.falando) renderMensagensDepois();
+      if (vista === 'config') renderTudo(); else renderVoz();
+      break;
+    }
+    case 'vozInstalacao':
+      progressoVoz.set(m.progresso.componente, m.progresso);
+      if (m.progresso.etapa === 'erro' && m.progresso.mensagem) avisar(m.progresso.mensagem);
+      if (vista === 'config') renderTudo();
+      break;
     case 'voz':
       E.voz = { ...E.voz, gravando: m.gravando };
       if (m.transcricao) { texto.value = `${texto.value}${texto.value && !texto.value.endsWith(' ') ? ' ' : ''}${m.transcricao}`; ajustarAltura(); texto.focus(); salvarLocal({ rascunho: texto.value }); }
       if (m.erro) avisar(m.erro);
       renderVoz(); break;
     case 'aviso': avisar(m.texto); break;
+    case 'chats':
+      listaChats = m.lista; buscaAtual = m.busca ?? '';
+      if (vista === 'chats') renderTudo();
+      break;
+    case 'chat':
+      E.chat = m.chat;
+      listaChats = substituir(listaChats, m.chat);
+      renderCabecalho();
+      if (vista === 'chats') renderTudo();
+      break;
+    case 'memorias':
+      memorias = m.lista;
+      E.memoriasAtivas = m.lista.filter((x) => x.ativa && (x.escopo === 'global' || x.projeto === E!.sala.projeto)).length;
+      if (vista === 'chats') renderTudo();
+      break;
     case 'login': {
       const p = m.progresso;
       progressos.set(p.agente, p);

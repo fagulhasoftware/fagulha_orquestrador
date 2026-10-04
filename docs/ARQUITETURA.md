@@ -66,6 +66,30 @@ media/                    icones e CSS
   resultados de ferramentas MCP entram no historico e chegam aos demais agentes.
 - Sessoes dos CLIs sao retomadas por sala e agente; mudar o modo de permissao abre sessao nova.
 
+### 3.1 Chats e memoria persistente (versao 0.2.1)
+
+- **Chat** e a unidade de conversa persistente (tabela `chats`): id, titulo, projeto (pasta ou nulo),
+  criado/atualizado, fixado. Mensagens, acoes, anexos, aprovacoes, contextos e sessoes dos CLIs pertencem
+  ao chat. A sala continua sendo a janela/pasta; ela aponta para o chat ativo.
+- **Abertura:** a janela reabre o ultimo chat usado na sua pasta (`ultimo_chat` por sala); sem pasta, o
+  ultimo chat sem projeto; sem nenhum, cria um chat novo. Fechar e reabrir o VS Code restaura o chat e
+  as sessoes dos agentes.
+- **Novo chat:** cria um chat vazio na pasta da janela; as sessoes dos CLIs sao chaveadas por chat, entao
+  os agentes comecam do zero sem apagar o chat anterior.
+- **Menu Chats:** lista todos os chats (fixados, deste projeto, outros projetos, sem projeto); busca
+  local em titulos e no texto das mensagens (falas e do usuario, nunca segredos mascarados); renomear,
+  fixar, exportar em Markdown e excluir (apaga mensagens, acoes, anexos e sessoes do chat). Abrir um chat
+  de outro projeto mostra o historico; os agentes trabalham na pasta da janela atual.
+- **Titulo automatico:** primeira mensagem do usuario, sem mencoes, ate 60 caracteres; editavel.
+- **Memoria persistente** (tabela `memorias`): fatos curtos (ate 500 caracteres), escopo `global` ou
+  `projeto`, ativos ou desativados. As memorias ativas do escopo (global + projeto da janela) entram no
+  contexto de cada agente numa secao "Memoria do usuario", com teto de 4 000 caracteres (mais recentes
+  primeiro). Origem: usuario (menu ou `/lembrar`, `/lembrar-global`) ou agente pela ferramenta MCP
+  `memoria_propor`, que gera um pedido de aprovacao categoria `memoria` e so grava se o usuario aprovar.
+  Texto que pareca segredo (chaves, tokens, senhas) e recusado.
+- **Migracao:** cada sala existente vira um chat (titulo gerado da primeira mensagem ou "Conversa de
+  <data>"), preservando mensagens, acoes, anexos e sessoes.
+
 ## 4. Provedores (agentes)
 
 Interface (detalhe em `src/providers/tipos.ts`, definido pelo Codex a partir de `protocolo.ts`):
@@ -176,11 +200,46 @@ conteudo e resumido para um orcamento de tamanho (padrao 12 000 caracteres, ulti
 
 - Fase 1: `navegador_ler` (fetch HTTP(S), extracao de texto, limite 1 MB, aprovacao conforme nivel)
   e `navegador_abrir` (navegador externo do sistema).
-- Fase 1b, voz: gravacao com ffmpeg (DirectShow) e transcricao com whisper.cpp e modelo local.
-  Nenhum audio sai da maquina. O assistente detecta ffmpeg/whisper e orienta a instalacao, que so
-  acontece com confirmacao do usuario. O webview nao tem acesso ao microfone; a gravacao e no host.
+- Voz (versao 0.2.0): ver secao 10.1.
 - Fase 2: navegador controlado via Chrome DevTools Protocol (Chrome do usuario aberto com porta de
   depuracao), repositorios remotos, VMs (ssh) e sites com login, sempre na categoria `externo`.
+
+### 10.1 Chat por voz: falar e ouvir (versao 0.2.0)
+
+O webview nao tem acesso ao microfone; gravacao, transcricao e leitura acontecem no extension host.
+
+**Falar**
+
+| Etapa | Implementacao |
+|---|---|
+| Gravacao | ffmpeg, 16 kHz mono WAV em arquivo temporario. Windows: `-f dshow -i audio="<dispositivo>"` (lista com `-list_devices true`); macOS: `-f avfoundation -i ":<indice>"`; Linux: `-f pulse -i default` (alsa como alternativa). Limite de 120 s por gravacao; o host emite `segundosGravados` a cada segundo. |
+| Transcricao | whisper.cpp (`whisper-cli`) com o modelo escolhido (padrao `small`), idioma configuravel (padrao `pt`), saida em texto. Timeout proporcional a duracao. |
+| Resultado | `envioAutomatico` ligado: a transcricao e enviada como mensagem do usuario (com mencoes, se ditas, ex.: "arroba claude"). Desligado: vai para a caixa de texto. |
+| Limpeza | O WAV e os arquivos auxiliares sao apagados apos a transcricao, no descarte e na desativacao da extensao. Audio nunca vai para o SQLite. |
+
+**Instalacao dos componentes (assistente com consentimento)**
+
+- Pasta propria: `~/.orquestra/voz/{bin,modelos}`. Sem administrador, sem alterar o PATH.
+- Antes de baixar, a interface mostra cada componente, a origem e o tamanho; o clique em
+  "Baixar e instalar" e o consentimento. O host so baixa os componentes recebidos em `vozInstalar`.
+- Windows: ffmpeg (build oficial em GitHub Releases) e whisper.cpp (binario oficial do projeto em GitHub
+  Releases), versoes fixadas. macOS e Linux: ffmpeg e whisper.cpp ficam como `manual`, com o comando
+  sugerido (`brew install ffmpeg whisper-cpp`; `sudo apt install ffmpeg` e instrucoes do whisper.cpp).
+  Componentes ja presentes no PATH sao reaproveitados.
+- Modelos: arquivos `ggml-<modelo>.bin` do repositorio oficial do whisper.cpp no Hugging Face.
+- Todo download: somente HTTPS para hosts permitidos (github.com, objects.githubusercontent.com,
+  huggingface.co e seus CDNs), SHA-256 fixado no codigo e conferido antes de usar, download em arquivo
+  `.parcial` com retomada/cancelamento, extracao limitada ao destino (sem caminhos `..`).
+
+**Ouvir**
+
+- Voz nativa do sistema: Windows via SAPI (`System.Speech` em PowerShell, sem janela), macOS via `say`,
+  Linux via `spd-say` ou `espeak-ng`. Sem download.
+- Le somente falas de agentes: remove markdown, troca blocos de codigo por "trecho de codigo omitido",
+  limita a ~1500 caracteres por fala. Leitura automatica opcional e botao "ouvir" por mensagem.
+- Iniciar uma gravacao interrompe a leitura em andamento (evita o microfone captar a propria voz).
+- O texto e passado ao processo de fala por stdin ou arquivo temporario, nunca como argumento de linha
+  de comando (evita injecao e limite de tamanho).
 
 ## 11. Instalacao e configuracao
 

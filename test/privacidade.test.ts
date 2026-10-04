@@ -24,6 +24,23 @@ const guarda = carregar('./scripts/verificar-privacidade.cjs') as {
   }>;
 };
 const usuarioFixture = 'usuario-do-empacotamento-fixture';
+test('pacote recusa binários, modelos e áudio de voz mesmo dentro de dist', () => {
+  for (const arquivo of [
+    'ffmpeg.exe',
+    'whisper.dll',
+    'ggml-small.bin',
+    'audio.wav',
+    'audio.mp3',
+    'audio.ogg',
+    'audio.flac',
+  ])
+    assert(
+      guarda
+        .motivosArquivo('extension/dist/' + arquivo)
+        .includes('binario de voz, modelo ou audio proibido no pacote'),
+    );
+  assert.deepEqual(guarda.motivosArquivo('extension/dist/sql-wasm.wasm'), []);
+});
 async function pacote(pasta: string, arquivos: Record<string, string | Buffer>) {
   const zip = new JSZip();
   zip.file('[Content_Types].xml', '<Types/>');
