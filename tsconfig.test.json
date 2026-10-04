@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false, "rootDir": ".", "outDir": "test/.tmp/build" },
+  "include": ["test/**/*.ts"],
+  "exclude": ["node_modules", "dist", "test/.tmp", "src/webview", "src/extension.ts"]
+}

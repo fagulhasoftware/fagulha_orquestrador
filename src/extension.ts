@@ -1,0 +1,540 @@
+import * as vscode from 'vscode';
+import { homedir } from 'node:os';
+import { join, basename } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile, rm, stat, open } from 'node:fs/promises';
+import { Armazenamento } from './storage/sqlite';
+export { Armazenamento } from './storage/sqlite';
+import { Sala, chaveSala } from './core/sala';
+import { configuracaoPadrao, limitar } from './core/configuracao';
+import { validarMensagem } from './core/protocolo';
+import { montarHtml } from './core/webview';
+import { mascarar, caminhoReal, protegerSegredo } from './core/seguranca';
+import { ProvedorCli } from './providers/cli';
+import { ProvedorApi, type ApiId, type OpcoesApi } from './providers/api';
+import { GestorLogin } from './providers/login';
+import type { Provedor } from './providers/tipos';
+import { carregarManifestos, lerManifesto, criarProvedorManifesto } from './providers/manifestos';
+import { PonteHttp } from './mcp/ponte';
+import { ExecutorFerramentas } from './mcp/executor';
+import { Anexador } from './attachments/pipeline';
+import {
+  descobrirContextos,
+  importarContexto,
+  type CandidatoContexto,
+} from './context-import/importador';
+import { VozLocal } from './voice/voz';
+import { validarUrl } from './browser/pagina';
+import type { DoHost, Agente, Mensagem, Configuracao } from './shared/protocolo';
+
+export function htmlWebview(webview: vscode.Webview, uri: vscode.Uri): string {
+  const css = webview.asWebviewUri(vscode.Uri.joinPath(uri, 'media', 'orquestra.css'));
+  const js = webview.asWebviewUri(vscode.Uri.joinPath(uri, 'dist', 'webview.js'));
+  return montarHtml(webview.cspSource, String(css), String(js));
+}
+interface OpcoesProvedor extends OpcoesApi {
+  comando?: string;
+}
+let encerrar: (() => Promise<void>) | undefined;
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<{ registrarProvedor: (p: Provedor) => vscode.Disposable }> {
+  const raizes = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+    projeto = raizes[0] ?? null;
+  const id = chaveSala(raizes),
+    pasta = join(homedir(), '.orquestra', 'dados');
+  const storage = new Armazenamento(
+    join(pasta, 'orquestra.sqlite'),
+    join(context.extensionPath, 'dist', 'sql-wasm.wasm'),
+  );
+  await storage.iniciar();
+  const sala = new Sala(id, projeto, projeto ? basename(projeto) : 'Sala avulsa', storage);
+  const cfg = () => vscode.workspace.getConfiguration('fagulha');
+  const opcoes = (id: string): OpcoesProvedor => {
+    const original = cfg().get<Record<string, OpcoesProvedor>>('provedores', {})[id] ?? {};
+    return {
+      modelo:
+        cfg()
+          .get<string>(`provedores.${id}.modelo`, original.modelo ?? '')
+          .trim() || undefined,
+      baseUrl:
+        cfg()
+          .get<string>(`provedores.${id}.baseUrl`, original.baseUrl ?? '')
+          .trim() || undefined,
+      comando:
+        cfg()
+          .get<string>(`provedores.${id}.comando`, original.comando ?? '')
+          .trim() || undefined,
+    };
+  };
+  // Assinaturas legadas dos adaptadores permanecem compatíveis, mas nunca abrem terminal.
+  const terminal = async () => {
+    throw new Error('Login por terminal não é permitido.');
+  };
+  const pedirChave = async () => undefined;
+  const registrar = (p: Provedor) => {
+    if (p.autenticacao?.tipoChave === 'compativel') {
+      p.autenticacao.salvarBaseUrl = async (baseUrl) => {
+        const provedores = cfg().get<Record<string, OpcoesProvedor>>('provedores', {});
+        await cfg().update(
+          'provedores',
+          { ...provedores, [p.agente.id]: { ...provedores[p.agente.id], baseUrl } },
+          projeto ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global,
+        );
+      };
+    }
+    sala.registrar(p);
+  };
+  for (const id of ['claude', 'codex', 'gemini'] as const)
+    registrar(
+      new ProvedorCli(
+        id,
+        terminal,
+        opcoes(id).comando,
+        join(pasta, 'cli', sala.id, id),
+        context.secrets,
+      ),
+    );
+  for (const id of [
+    'ollama',
+    'openai-api',
+    'openai-compativel',
+    'anthropic',
+    'gemini-api',
+  ] as ApiId[])
+    registrar(new ProvedorApi(id, context.secrets, () => opcoes(id), pedirChave));
+  // Manifests sao codigo executavel: carregar somente apos confianca no workspace.
+  if (vscode.workspace.isTrusted)
+    for (const m of await carregarManifestos(join(homedir(), '.orquestra', 'provedores')))
+      registrar(
+        criarProvedorManifesto(m, context.secrets, terminal, pedirChave, () => opcoes(m.id)),
+      );
+  await sala.iniciar();
+  if (sala.primeiraExecucao) {
+    const defaults = configuracaoPadrao();
+    const limites = Object.fromEntries(
+      Object.keys(defaults.limites).map((k) => [
+        k,
+        cfg().get(`anexos.${k}`, defaults.limites[k as keyof typeof defaults.limites]),
+      ]),
+    ) as Configuracao['limites'];
+    await sala.configurar({
+      nivel: cfg().get('nivel') === 'parcial' ? 'parcial' : 'manual',
+      passagensAutomaticas: cfg().get('passagensAutomaticas', 6),
+      timeoutMinutos: cfg().get('timeoutMinutos', 20),
+      limites: limitar(limites),
+    });
+  }
+  const voz = new VozLocal();
+  sala.voz = await voz.detectar();
+  const abrir = async (url: string) => {
+    if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
+      throw new Error('Nao foi possivel abrir navegador.');
+  };
+  const executor = new ExecutorFerramentas(sala, raizes, abrir);
+  const ponte = new PonteHttp((id, nome, args, sinal) => executor.executar(id, nome, args, sinal));
+  await ponte.iniciar();
+  const anexador = new Anexador(
+    join(pasta, 'anexos'),
+    join(context.extensionPath, 'dist', 'anexos-worker.js'),
+    () => sala.config.limites,
+  );
+  sala.preparar = async (agente: Agente, sinal: AbortSignal) => {
+    if (!vscode.workspace.isTrusted)
+      throw new Error('Execucao de agentes requer workspace confiavel.');
+    const p = sala.provedores.get(agente.id)!;
+    // Autoriza envio do contexto ao provedor ANTES da chamada. Ollama permanece loopback.
+    const externo = !(p instanceof ProvedorApi && p.id === 'ollama');
+    await sala.portao.executar(
+      {
+        agente: agente.id,
+        modo: 'leitura_escrita',
+        categoria:
+          agente.origem === 'manifesto' && agente.tipo === 'cli' ? 'comando' : 'rede_leitura',
+        resumo: externo
+          ? `Enviar contexto da sala a ${agente.nick}`
+          : `Consultar ${agente.nick} local`,
+        detalhe: p instanceof ProvedorApi ? p.endpoint : agente.nick,
+        critica: agente.origem === 'manifesto' && agente.tipo === 'cli',
+      },
+      async () => {},
+      sinal,
+    );
+    const capacidade = ponte.criar(agente.id, sinal);
+    protegerSegredo(capacidade.token);
+    const diretorio = join(pasta, 'sessoes', sala.id, agente.id, randomUUID());
+    const regras: string[] = [];
+    try {
+      if (projeto && agente.modo !== 'escrita')
+        for (const nome of ['AGENTS.md', 'CLAUDE.md', join('orquestra', 'MEMORIA.md')]) {
+          const caminho = join(projeto, nome);
+          let existe = false;
+          try {
+            existe = (await stat(caminho)).isFile();
+          } catch {}
+          if (!existe) continue;
+          const r = (await executor.executar(agente.id, 'arquivo_ler', { caminho }, sinal)) as {
+            texto: string;
+          };
+          regras.push(`${nome}:\n${r.texto.slice(0, 16000)}`);
+        }
+      const enviados = new Set(sala.mensagens.flatMap((m) => (m.anexos ?? []).map((a) => a.id)));
+      const imagens: { mime: string; base64: string }[] = [];
+      if (agente.suportaImagem)
+        for (const a of [...sala.anexos.values()]
+          .filter((a) => enviados.has(a.meta.id) && a.meta.tipo === 'imagem' && a.arquivo)
+          .slice(-4)) {
+          const mime = /\.jpe?g$/i.test(a.meta.nome)
+            ? 'image/jpeg'
+            : /\.webp$/i.test(a.meta.nome)
+              ? 'image/webp'
+              : /\.gif$/i.test(a.meta.nome)
+                ? 'image/gif'
+                : 'image/png';
+          imagens.push({ mime, base64: (await readFile(a.arquivo!)).toString('base64') });
+        }
+      return {
+        regras,
+        pedido: {
+          ponte: {
+            url: capacidade.url,
+            token: capacidade.token,
+            servidor: join(context.extensionPath, 'dist', 'mcp-servidor.js'),
+            diretorio,
+          },
+          imagens,
+          ferramenta: (nome: string, args: Record<string, unknown>) =>
+            executor.executar(agente.id, nome, args, sinal),
+        },
+        limpar: async () => {
+          capacidade.revogar();
+          await rm(diretorio, { recursive: true, force: true });
+        },
+      };
+    } catch (e) {
+      capacidade.revogar();
+      throw e;
+    }
+  };
+  const views = new Set<vscode.Webview>();
+  const broadcast = sala.observar((e) => {
+    for (const v of views) void v.postMessage(e);
+  });
+  const aviso = (texto: string) =>
+    sala.emitir({ tipo: 'aviso', nivel: 'erro', texto: mascarar(texto) });
+  const login = new GestorLogin({
+    provedor: (id) => sala.provedores.get(id),
+    emitir: (evento) => sala.emitir(evento),
+    abrir: async (url) => {
+      if (!(await vscode.env.openExternal(vscode.Uri.parse(url))))
+        throw new Error('Não foi possível abrir o navegador.');
+    },
+    auditar: async (resumo) => {
+      await storage.gravar('auditoria', sala.id, randomUUID(), { resumo });
+    },
+  });
+  const configurarView = (webview: vscode.Webview, descartado: vscode.Event<void>) => {
+    webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(context.extensionUri, 'media'),
+        vscode.Uri.joinPath(context.extensionUri, 'dist'),
+      ],
+    };
+    views.add(webview);
+    webview.html = htmlWebview(webview, context.extensionUri);
+    const listener = webview.onDidReceiveMessage(async (entrada) => {
+      try {
+        if (entrada?.tipo === 'loginChave' && typeof entrada.chave === 'string')
+          protegerSegredo(entrada.chave);
+        const m = validarMensagem(entrada);
+        if (m.tipo === 'pronto') {
+          await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
+          for (const progresso of login.progresso())
+            await webview.postMessage({ tipo: 'login', progresso } satisfies DoHost);
+          return;
+        }
+        if (
+          !vscode.workspace.isTrusted &&
+          !['parar', 'loginCancelar', 'responderAprovacao', 'carregarAnteriores'].includes(m.tipo)
+        )
+          throw new Error(
+            'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
+          );
+        switch (m.tipo) {
+          case 'enviar':
+            sala.enviar(m.texto, m.anexos);
+            break;
+          case 'parar':
+            sala.parar();
+            break;
+          case 'carregarAnteriores': {
+            const i = sala.mensagens.findIndex((x) => x.id === m.antesDe);
+            const antes = i < 0 ? 0 : i;
+            await webview.postMessage({
+              tipo: 'anteriores',
+              mensagens: sala.mensagens.slice(Math.max(0, antes - 200), antes),
+              fim: antes <= 200,
+            } satisfies DoHost);
+            break;
+          }
+          case 'anexarArquivos': {
+            const uris = await vscode.window.showOpenDialog({
+              canSelectMany: true,
+              canSelectFolders: false,
+              title: 'Orquestrador Fagulha: anexar arquivos',
+            });
+            for (const uri of uris ?? [])
+              await sala.adicionarAnexo(await anexador.arquivo(uri.fsPath));
+            break;
+          }
+          case 'anexarDados':
+            await sala.adicionarAnexo(await anexador.dados(m.nome, m.base64));
+            break;
+          case 'anexarCaminhos': {
+            for (const valor of m.uris) {
+              const uri = vscode.Uri.parse(valor);
+              if (uri.scheme !== 'file')
+                throw new Error(
+                  'Arraste arquivos locais (file://). URIs remotas nao sao aceitas nesta F1.',
+                );
+              await sala.adicionarAnexo(await anexador.arquivo(uri.fsPath));
+            }
+            break;
+          }
+          case 'removerAnexo':
+            sala.removerAnexo(m.id);
+            break;
+          case 'importarContexto': {
+            const candidatos = await descobrirContextos();
+            const outras = await storage.listar<Mensagem>('mensagens');
+            const salas = [...new Set(outras.map((m) => m.sala))].filter((s) => s !== sala.id);
+            const itens = [
+              ...candidatos.map((c) => ({ label: c.titulo, description: c.origem, c })),
+              ...salas.map((s) => ({ label: s, description: 'Orquestrador Fagulha', s })),
+            ];
+            const selecionado = await vscode.window.showQuickPick(itens, {
+              title: 'Importar contexto local',
+              matchOnDescription: true,
+            });
+            if (selecionado && 'c' in selecionado)
+              await sala.adicionarContexto(await importarContexto(selecionado.c));
+            if (selecionado && 's' in selecionado) {
+              const texto = outras
+                .filter((m) => m.sala === selecionado.s)
+                .map((m) => `${m.autor}: ${m.texto}`)
+                .join('\n')
+                .slice(-12000);
+              await sala.adicionarContexto({
+                meta: {
+                  id: randomUUID(),
+                  origem: 'sala-orquestra',
+                  titulo: selecionado.s,
+                  caracteres: texto.length,
+                },
+                texto,
+              });
+            }
+            break;
+          }
+          case 'removerContexto':
+            await sala.removerContexto(m.id);
+            break;
+          case 'responderAprovacao':
+            sala.portao.responder(m.id, m.decisao);
+            break;
+          case 'agenteHabilitar':
+            await sala.atualizarAgente(m.id, { habilitado: m.habilitado });
+            break;
+          case 'agenteModo':
+            await sala.atualizarAgente(m.id, { modo: m.modo });
+            break;
+          case 'agentePapel':
+            await sala.atualizarAgente(m.id, { papel: m.papel });
+            break;
+          case 'agenteNovaSessao':
+            await sala.novaSessao(m.id);
+            break;
+          case 'agenteConfigurar':
+            if (!sala.provedores.has(m.id)) throw new Error('Agente desconhecido.');
+            await vscode.commands.executeCommand(
+              'workbench.action.openSettings',
+              `fagulha.provedores.${m.id}`,
+            );
+            break;
+          case 'loginIniciar':
+            await login.iniciar(m.id, m.metodo, m.variante);
+            break;
+          case 'loginChave':
+            await login.chave(m.id, m.chave, m.baseUrl);
+            break;
+          case 'loginCancelar':
+            login.cancelar(m.id);
+            break;
+          case 'logout': {
+            await sala.novaSessao(m.id);
+            await login.logout(m.id);
+            break;
+          }
+          case 'abrirLinkLogin':
+            await login.abrir(m.url);
+            break;
+          case 'instalarAgente': {
+            const escolha = await vscode.window.showQuickPick(
+              ['Importar manifesto local', 'Procurar extensao no Marketplace'],
+              { title: 'Adicionar agente' },
+            );
+            if (escolha === 'Procurar extensao no Marketplace') {
+              await vscode.commands.executeCommand(
+                'workbench.extensions.search',
+                'fagulha provider',
+              );
+              break;
+            }
+            if (escolha !== 'Importar manifesto local') break;
+            const arquivos = await vscode.window.showOpenDialog({
+              canSelectMany: false,
+              filters: { Manifesto: ['json'] },
+            });
+            if (!arquivos?.[0]) break;
+            const m = await lerManifesto(await caminhoReal(arquivos[0].fsPath));
+            if (sala.provedores.has(m.id)) throw new Error('ID de agente ja registrado.');
+            const ok = await vscode.window.showWarningMessage(
+              `Manifesto ${m.nick} pode executar codigo local. Origem: ${arquivos[0].fsPath}`,
+              { modal: true },
+              'Adicionar',
+            );
+            if (ok !== 'Adicionar') break;
+            const prov = criarProvedorManifesto(m, context.secrets, terminal, pedirChave, () =>
+              opcoes(m.id),
+            );
+            const detectado = await prov.detectar();
+            prov.agente.instalado = detectado.instalado;
+            registrar(prov);
+            const pastaManifesto = join(homedir(), '.orquestra', 'provedores', m.id);
+            await mkdir(pastaManifesto, { recursive: true });
+            await writeFile(
+              join(pastaManifesto, 'orquestra-provedor.json'),
+              JSON.stringify(m, null, 2),
+              { mode: 0o600 },
+            );
+            sala.estadoCompleto();
+            break;
+          }
+          case 'configurar':
+            await sala.configurar(m.parcial);
+            break;
+          case 'definirNivel':
+            await sala.configurar({ nivel: m.nivel }, m.confirmacao);
+            break;
+          case 'concluirAssistente':
+            sala.primeiraExecucao = false;
+            await sala.salvar();
+            sala.estadoCompleto();
+            break;
+          case 'vozIniciar':
+            await voz.iniciar();
+            break;
+          case 'vozParar': {
+            const transcricao = await voz.parar();
+            sala.emitir({ tipo: 'voz', gravando: false, transcricao });
+            break;
+          }
+          case 'abrirLink':
+            await sala.portao.executar(
+              {
+                agente: 'usuario',
+                modo: 'leitura_escrita',
+                categoria: 'navegador',
+                resumo: 'Abrir link',
+                detalhe: validarUrl(m.url).href,
+              },
+              () => abrir(m.url),
+            );
+            break;
+          case 'exportarConversa': {
+            const uri = await vscode.window.showSaveDialog({
+              defaultUri: projeto
+                ? vscode.Uri.file(join(projeto, 'orquestra-conversa.md'))
+                : undefined,
+              filters: { Markdown: ['md'] },
+            });
+            if (!uri) break;
+            const real = await caminhoReal(uri.fsPath, true);
+            await writeFile(
+              real,
+              sala.mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n'),
+              'utf8',
+            );
+            break;
+          }
+        }
+      } catch (e) {
+        aviso((e as Error).message);
+      }
+    });
+    const disposal = descartado(() => {
+      views.delete(webview);
+      listener.dispose();
+      disposal.dispose();
+    });
+    context.subscriptions.push(listener, disposal);
+  };
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'fagulha.sala',
+      {
+        resolveWebviewView(view) {
+          configurarView(view.webview, view.onDidDispose);
+        },
+      },
+      { webviewOptions: { retainContextWhenHidden: true } },
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fagulha.abrirNoEditor', () => {
+      const panel = vscode.window.createWebviewPanel(
+        'fagulha.sala',
+        'Orquestrador Fagulha',
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'logo.png');
+      configurarView(panel.webview, panel.onDidDispose);
+    }),
+  );
+  encerrar = async () => {
+    await login.finalizar();
+    sala.parar();
+    broadcast();
+    await sala.esperar();
+    await ponte.finalizar();
+    await storage.finalizar();
+  };
+  context.subscriptions.push({
+    dispose() {
+      void encerrar?.();
+    },
+  });
+  return {
+    registrarProvedor(p) {
+      sala.registrar(p);
+      void p
+        .detectar()
+        .then(async (d) => {
+          p.agente.instalado = d.instalado;
+          p.agente.versao = d.versao;
+          p.agente.login = await p.estadoLogin();
+          sala.estadoCompleto();
+        })
+        .catch((e) => aviso((e as Error).message));
+      return new vscode.Disposable(() => {
+        void sala.desregistrar(p.agente.id);
+      });
+    },
+  };
+}
+export async function deactivate(): Promise<void> {
+  await encerrar?.();
+  encerrar = undefined;
+}

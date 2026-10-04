@@ -1,0 +1,222 @@
+{
+  "name": "orquestrador-fagulha",
+  "displayName": "Orquestrador Fagulha",
+  "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
+  "version": "0.1.0",
+  "publisher": "fagulha",
+  "license": "MIT",
+  "icon": "media/logo.png",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "orquestrador",
+    "fagulha",
+    "agentes",
+    "ia",
+    "claude",
+    "codex",
+    "gemini",
+    "ollama",
+    "chat",
+    "multiagente",
+    "mcp"
+  ],
+  "homepage": "https://fagulha.net",
+  "galleryBanner": {
+    "color": "#0b1a3a",
+    "theme": "dark"
+  },
+  "qna": false,
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:fagulha.sala"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.host.json && node esbuild.mjs",
+    "test": "tsc -p tsconfig.test.json && node esbuild.mjs --test && node --test --test-concurrency=1 test/.tmp/build/test/*.test.js",
+    "package": "npm run build && node scripts/empacotar.cjs && node scripts/verificar-privacidade.cjs",
+    "check:webview": "tsc --noEmit",
+    "smoke:clis": "tsc -p tsconfig.test.json && node scripts/smoke-clis.cjs",
+    "verify:codex-mcp": "tsc -p tsconfig.test.json && node scripts/verificar-codex-mcp.cjs",
+    "format": "prettier --write src/extension.ts src/core src/providers src/permissions src/mcp src/storage src/attachments src/context-import src/browser src/voice test/*.ts test/package-smoke.cjs scripts/*.cjs esbuild.mjs tsconfig*.json package.json .prettierrc.json"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "fagulha.abrirNoEditor",
+        "title": "Orquestrador Fagulha: Abrir no editor"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fagulha",
+          "title": "Orquestrador Fagulha",
+          "icon": "media/logo-barra.png"
+        }
+      ]
+    },
+    "views": {
+      "fagulha": [
+        {
+          "type": "webview",
+          "id": "fagulha.sala",
+          "name": "Orquestrador Fagulha"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Orquestrador Fagulha",
+      "properties": {
+        "fagulha.nivel": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "parcial",
+            "total"
+          ],
+          "default": "manual",
+          "description": "Nivel inicial. Total exige confirmacao no painel."
+        },
+        "fagulha.provedores": {
+          "type": "object",
+          "default": {},
+          "description": "Por ID: baseUrl, modelo, comando. Chaves somente no login via SecretStorage."
+        },
+        "fagulha.passagensAutomaticas": {
+          "type": "number",
+          "default": 6,
+          "minimum": 0,
+          "maximum": 30
+        },
+        "fagulha.timeoutMinutos": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 120
+        },
+        "fagulha.anexos.textoIntegralKB": {
+          "type": "number",
+          "default": 512,
+          "minimum": 1,
+          "maximum": 512
+        },
+        "fagulha.anexos.textoMaxMB": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.01,
+          "maximum": 2
+        },
+        "fagulha.anexos.imagemMaxMB": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0.01,
+          "maximum": 10
+        },
+        "fagulha.anexos.documentoMaxMB": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0.01,
+          "maximum": 20
+        },
+        "fagulha.anexos.planilhaMaxMB": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0.01,
+          "maximum": 5
+        },
+        "fagulha.anexos.planilhaLinhasPorAba": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 50
+        },
+        "fagulha.anexos.planilhaAbas": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 5
+        },
+        "fagulha.provedores.claude.comando": {
+          "type": "string",
+          "description": "comando do provedor claude. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.codex.comando": {
+          "type": "string",
+          "description": "comando do provedor codex. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.gemini.comando": {
+          "type": "string",
+          "description": "comando do provedor gemini. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.ollama.modelo": {
+          "type": "string",
+          "description": "modelo do provedor ollama. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.ollama.baseUrl": {
+          "type": "string",
+          "description": "baseUrl do provedor ollama. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.openai-compativel.modelo": {
+          "type": "string",
+          "description": "modelo do provedor openai-compativel. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.openai-compativel.baseUrl": {
+          "type": "string",
+          "description": "baseUrl do provedor openai-compativel. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.anthropic.modelo": {
+          "type": "string",
+          "description": "modelo do provedor anthropic. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.anthropic.baseUrl": {
+          "type": "string",
+          "description": "baseUrl do provedor anthropic. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.gemini-api.modelo": {
+          "type": "string",
+          "description": "modelo do provedor gemini-api. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.gemini-api.baseUrl": {
+          "type": "string",
+          "description": "baseUrl do provedor gemini-api. Vazio usa a deteccao ou valor padrao."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "csv-parse": "^7.0.3",
+    "dompurify": "^3.2.7",
+    "exceljs": "^4.4.0",
+    "mammoth": "^1.10.0",
+    "marked": "^16.4.0",
+    "pdfjs-dist": "^4.10.38",
+    "sql.js": "^1.13.0",
+    "unzipper": "^0.12.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/sql.js": "^1.4.9",
+    "@types/unzipper": "^0.10.11",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild-wasm": "^0.25.0",
+    "jszip": "^3.10.2",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "unzipper": "^0.12.3",
+      "uuid": "^11.1.1"
+    }
+  }
+}

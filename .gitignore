@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.npm-cache/
+test/.tmp/
+*.vsix
+*.sqlite
+*.sqlite-*
+*.log
+.env*
+*.resposta.md
+*.sessao
+
+# Registros internos de missoes (caminhos e historico locais; nao publicar)
+orquestra/

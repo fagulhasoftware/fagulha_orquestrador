@@ -1,0 +1,25 @@
+# Allowlist: somente o produto e seus documentos publicos.
+**
+!dist/extension.js
+!dist/mcp-servidor.js
+!dist/anexos-worker.js
+!dist/pdf.mjs
+!dist/pdf.worker.mjs
+!dist/sql-wasm.wasm
+!dist/webview.js
+!dist/pdf-assets/cmaps/**
+!dist/pdf-assets/standard_fonts/**
+!media/logo.png
+!media/logo-barra.png
+!media/orquestra.css
+!media/orquestra.svg
+!package.json
+!README.md
+!LICENSE
+!PRIVACIDADE.md
+!CHANGELOG.md
+dist/**/*.map
+dist/**/*.d.ts
+dist/**/*.log
+dist/**/*.sqlite*
+dist/**/.env*
