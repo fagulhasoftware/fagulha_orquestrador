@@ -2,7 +2,7 @@
   "name": "orquestrador-fagulha",
   "displayName": "Orquestrador Fagulha",
   "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "FagulhaSoftware",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -203,6 +203,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@iarna/toml": "^2.2.5",
     "@types/node": "^22.0.0",
     "@types/sql.js": "^1.4.9",
     "@types/unzipper": "^0.10.11",

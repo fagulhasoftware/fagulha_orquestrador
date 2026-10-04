@@ -26,6 +26,7 @@ export interface EventosProvedor {
   fala(texto: string): void;
   parcial(texto: string): void;
   acao(texto: string): void;
+  sistema?(texto: string): void;
   erro(texto: string): void;
 }
 export interface Provedor {

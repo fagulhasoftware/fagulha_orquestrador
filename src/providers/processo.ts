@@ -42,6 +42,7 @@ export async function rodar(
     sinal?: AbortSignal;
     linha?: (linha: string) => void;
     trecho?: (texto: string) => void;
+    filtrarLinha?: (linha: string) => boolean;
     timeoutMs?: number;
   } = {},
 ): Promise<string> {
@@ -60,6 +61,16 @@ export async function rodar(
       buffer = '',
       timeout = false;
     const decoder = new StringDecoder('utf8');
+    const decoderErro = new StringDecoder('utf8');
+    let bufferErro = '';
+    const linhaSaida = (l: string) => {
+      if (opcoes.filtrarLinha && !opcoes.filtrarLinha(l)) return;
+      if (opcoes.filtrarLinha) saida = (saida + l + '\n').slice(-1_000_000);
+      opcoes.linha?.(l);
+    };
+    const linhaErro = (l: string) => {
+      if (!opcoes.filtrarLinha || opcoes.filtrarLinha(l)) erro = (erro + l + '\n').slice(-4000);
+    };
     const cancelar = () => matarArvore(proc.pid);
     const timer = setTimeout(
       () => {
@@ -74,7 +85,7 @@ export async function rodar(
     proc.stdout.on('data', (d: Buffer) => {
       const s = decoder.write(d);
       opcoes.trecho?.(s);
-      saida = (saida + s).slice(-1_000_000);
+      if (!opcoes.filtrarLinha) saida = (saida + s).slice(-1_000_000);
       buffer += s;
       if (buffer.length > 2_000_000) {
         cancelar();
@@ -85,7 +96,7 @@ export async function rodar(
         const l = buffer.slice(0, i);
         buffer = buffer.slice(i + 1);
         try {
-          opcoes.linha?.(l);
+          linhaSaida(l);
         } catch (e) {
           erro = String(e);
           cancelar();
@@ -93,8 +104,18 @@ export async function rodar(
       }
     });
     proc.stderr.on('data', (d: Buffer) => {
-      const texto = d.toString('utf8');
-      erro = (erro + texto).slice(-4000);
+      const texto = decoderErro.write(d);
+      bufferErro += texto;
+      let i;
+      while ((i = bufferErro.indexOf('\n')) >= 0) {
+        linhaErro(bufferErro.slice(0, i));
+        bufferErro = bufferErro.slice(i + 1);
+      }
+      // Limita tambem stderr sem quebras de linha.
+      if (bufferErro.length > 32_000) {
+        linhaErro(bufferErro);
+        bufferErro = '';
+      }
       opcoes.trecho?.(texto);
     });
     const limpar = () => {
@@ -108,9 +129,11 @@ export async function rodar(
     proc.once('close', (code) => {
       limpar();
       buffer += decoder.end();
+      bufferErro += decoderErro.end();
+      if (bufferErro) linhaErro(bufferErro);
       if (buffer.trim())
         try {
-          opcoes.linha?.(buffer);
+          linhaSaida(buffer);
         } catch (e) {
           reject(e);
           return;

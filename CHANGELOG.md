@@ -1,5 +1,10 @@
 # Histórico de versões
 
+## 0.1.1
+
+- Corrigido o bloqueio ao iniciar ou retomar conversas com o Codex quando ha MCPs de plugins instalados. No nivel Manual, a conversa so inicia quando o isolamento pode ser garantido; nos demais niveis, a sala avisa se algum MCP herdado continuar ativo.
+- Configuracoes obsoletas do Codex agora geram um aviso informativo uma vez por sessao, sem marcar o agente como erro.
+
 ## 0.1.0 — 2026-10
 
 Primeira versão pública.

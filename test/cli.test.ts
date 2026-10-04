@@ -51,7 +51,7 @@ test('retomada e sandbox explicitos; nenhum token nos argumentos', () => {
     assert.equal(a[a.indexOf('--resume') + 1], 'sessao-2');
   }
 });
-test('MCPs herdados: apenas nomes de tabela e override enabled=false; formato desconhecido recusa', () => {
+test('MCPs herdados: fallback conserva nomes e exige transporte no nivel Manual', () => {
   assert.deepEqual(
     nomesMcp('Name Command Args Env Cwd Status Auth\nherdado node - - - enabled Unsupported\n'),
     ['herdado'],
@@ -66,12 +66,12 @@ test('MCPs herdados: apenas nomes de tabela e override enabled=false; formato de
     undefined,
     undefined,
     undefined,
-    ['herdado'],
+    [{ nome: 'herdado', enabled: true, transporte: { command: 'node', args: [] } }],
   );
-  assert(args.includes('mcp_servers.herdado.enabled=false'));
+  assert(args.includes('mcp_servers={"herdado"={command="node",args=[],enabled=false}}'));
   assert.throws(() =>
     montarArgumentos('codex', 'leitura', 'manual', undefined, undefined, undefined, undefined, [
-      'nome.invalido',
+      { nome: 'nome/invalido', enabled: true },
     ]),
   );
 });
