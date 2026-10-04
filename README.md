@@ -112,6 +112,12 @@ Leia o [guia de contribuição](https://github.com/fagulhasoftware/fagulha_orque
 
 Não relate vulnerabilidades em *issues* públicas. Siga a [política de segurança](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/SECURITY.md).
 
+## Autoria
+
+Produto da **Fagulha Software**, construído com o Codex (OpenAI) e o Claude (Anthropic).
+Contribuição reconhecida: Fagulha Software 50%, Codex 30%, Claude 20%. Detalhes em
+[AUTORES.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/AUTORES.md).
+
 ## Licença
 
 [MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini e Ollama são marcas de seus respectivos
