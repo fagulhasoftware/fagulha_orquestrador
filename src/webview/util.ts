@@ -50,6 +50,7 @@ const PATHS: Record<string, string> = {
   voltar: 'M6.5 3 1.5 8l5 5 1-1-3.3-3.3H14.5V7.3H4.2L7.5 4z',
   escudo: 'M8 1 2 3.5V8c0 3.3 2.6 6.2 6 7 3.4-.8 6-3.7 6-7V3.5zm0 1.5 4.6 1.9V8c0 2.5-1.9 4.8-4.6 5.5z',
   mais: 'M7.3 2h1.4v5.3H14v1.4H8.7V14H7.3V8.7H2V7.3h5.3z',
+  som: 'M2 6h2.5L8 3v10L4.5 10H2zm8.2-.9a4 4 0 0 1 0 5.8l-1-1a2.6 2.6 0 0 0 0-3.8zm2-2a6.8 6.8 0 0 1 0 9.8l-1-1a5.4 5.4 0 0 0 0-7.8z',
   copiar: 'M4 4V1.5h10.5V12H12v2.5H1.5V4zm1.4 0H12v6.6h1.1V2.9H5.4zM2.9 5.4v7.7h7.7V5.4z',
 };
 export function icone(nome: keyof typeof PATHS | string, titulo?: string): SVGSVGElement {

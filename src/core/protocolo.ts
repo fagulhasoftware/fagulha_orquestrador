@@ -14,8 +14,38 @@ const schemas = [
     'concluirAssistente',
     'vozIniciar',
     'vozParar',
+    'vozDescartar',
+    'vozCancelarInstalacao',
+    'pararLeitura',
     'exportarConversa',
   ].map(vazio),
+  z
+    .object({
+      tipo: z.literal('vozInstalar'),
+      componentes: z
+        .array(z.enum(['ffmpeg', 'whisper', 'modelo']))
+        .min(1)
+        .max(3),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('vozConfigurar'),
+      dispositivo: z.string().max(500).optional(),
+      modelo: z.enum(['base', 'small', 'medium']).optional(),
+      idioma: z.enum(['pt', 'en', 'es', 'auto']).optional(),
+      envioAutomatico: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('leituraConfigurar'),
+      ativa: z.boolean().optional(),
+      voz: z.string().max(200).optional(),
+      velocidade: z.number().min(0.5).max(2).optional(),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('lerMensagem'), id }).strict(),
   z.object({ tipo: z.literal('enviar'), texto, anexos: z.array(id).max(20) }).strict(),
   z.object({ tipo: z.literal('carregarAnteriores'), antesDe: id }).strict(),
   z

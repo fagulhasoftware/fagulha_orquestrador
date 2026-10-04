@@ -3,7 +3,7 @@
 // Fala com o host somente pelos tipos de src/shared/protocolo.ts.
 import {
   CONFIRMACAO_NIVEL_TOTAL, VERSAO_PROTOCOLO,
-  type Agente, type DoHost, type OpcaoLogin, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao,
+  type Agente, type ComponenteVoz, type DoHost, type EstadoVoz, type ItemInstalacaoVoz, type ModeloVoz, type OpcaoLogin, type ProgressoInstalacaoVoz, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao,
 } from '../shared/protocolo';
 import { renderMarkdown } from './markdown';
 import { botaoIcone, bytes, enviar, h, hora, icone, local, ouvir, salvarLocal, type Vista } from './util';
@@ -70,6 +70,7 @@ function renderCabecalho(): void {
       trabalhando ? botaoIcone('parar', 'Parar o agente atual', () => enviar({ tipo: 'parar' }), 'perigo') : null,
       h('span', { class: `nivel n-${E.configuracao.nivel}`, title: `Nivel de permissao: ${NIVEIS[E.configuracao.nivel].titulo}` },
         icone('escudo'), NIVEIS[E.configuracao.nivel].titulo),
+      btnLeitura,
       botaoIcone('pessoas', 'Agentes', () => irPara(vista === 'agentes' ? 'chat' : 'agentes'), vista === 'agentes' ? 'ativo' : ''),
       botaoIcone('engrenagem', 'Configuracoes', () => irPara(vista === 'config' ? 'chat' : 'config'), vista === 'config' ? 'ativo' : '')),
   );
@@ -129,7 +130,7 @@ const cache = new Map<string, { chave: string; el: HTMLElement }>();
 let fimAnteriores = false;
 
 function elMensagem(m: Mensagem): HTMLElement {
-  const chave = `${m.tipo}|${m.parcial ? 1 : 0}|${m.texto}|${(m.anexos ?? []).map((a) => a.id).join(',')}`;
+  const chave = `${m.tipo}|${m.parcial ? 1 : 0}|${m.texto}|${(m.anexos ?? []).map((a) => a.id).join(',')}|${E?.voz.leitura.disponivel ? 1 : 0}|${E?.voz.leitura.falando === m.id ? 1 : 0}`;
   const c = cache.get(m.id);
   if (c && c.chave === chave) return c.el;
   let el: HTMLElement;
@@ -137,7 +138,7 @@ function elMensagem(m: Mensagem): HTMLElement {
   if (m.tipo === 'fala') {
     const anexos = m.anexos ?? [];
     el = h('article', { class: `msg fala ${ag ? `c-${ag.cor}` : 'usuario'} ${m.parcial ? 'parcial' : ''}` },
-      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), h('time', { datetime: m.quando }, hora(m.quando))),
+      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), h('time', { datetime: m.quando }, hora(m.quando)), ag ? botaoOuvir(m) : null),
       renderMarkdown(m.texto),
       anexos.length ? h('div', { class: 'msg-anexos' }, ...anexos.map((a) => h('span', { class: `chip anexo-mini t-${a.tipo}` }, icone('clipe'), a.nome))) : null);
   } else if (m.tipo === 'acao') {
@@ -198,11 +199,13 @@ function renderMensagensDepois(): void {
 const chipsComposer = h('div', { class: 'chips-composer' });
 const texto = h('textarea', { class: 'entrada', rows: 1, placeholder: 'Mensagem para a sala. Use @ para mencionar.', 'aria-label': 'Mensagem' });
 const sugestoes = h('ul', { class: 'sugestoes', role: 'listbox', hidden: true });
+const barraGravacao = h('div', { class: 'barra-gravacao', role: 'status', hidden: true });
 const btnVoz = botaoIcone('mic', 'Falar (transcricao local)', () => alternarVoz());
+const btnLeitura = botaoIcone('som', 'Leitura automatica das respostas', () => { if (E) enviar({ tipo: 'leituraConfigurar', ativa: !E.voz.leitura.ativa }); });
 const btnEnviar = h('button', { class: 'bi enviar', type: 'button', title: 'Enviar (Enter)', 'aria-label': 'Enviar', onclick: () => enviarMensagem() }, icone('enviar'));
 const avisoLocal = h('div', { class: 'aviso-local', role: 'status', hidden: true });
 composer.append(
-  avisoLocal, chipsComposer,
+  avisoLocal, barraGravacao, chipsComposer,
   h('div', { class: 'caixa' }, sugestoes, texto),
   h('div', { class: 'barra' },
     botaoIcone('clipe', 'Anexar arquivos', () => enviar({ tipo: 'anexarArquivos' })),
@@ -341,16 +344,134 @@ app.addEventListener('drop', (e) => {
   if (uris.length) enviar({ tipo: 'anexarCaminhos', uris });
 });
 
-// ---------- voz ----------
+// ---------- voz: falar e ouvir (v3) ----------
+const progressoVoz = new Map<ComponenteVoz, ProgressoInstalacaoVoz>();
+const NOMES_MODELO: Record<ModeloVoz, string> = {
+  base: 'base (~150 MB, mais rapido)',
+  small: 'small (~490 MB, recomendado para portugues)',
+  medium: 'medium (~1,5 GB, mais preciso e mais lento)',
+};
+const minSeg = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
 function alternarVoz(): void {
-  if (!E?.voz.disponivel) return avisar(E?.voz.motivo ?? 'Voz indisponivel.');
+  if (!E) return;
+  if (E.voz.transcrevendo) return;
+  if (!E.voz.disponivel) {
+    avisar(E.voz.motivo ?? 'Voz ainda nao configurada.');
+    irPara('config');
+    requestAnimationFrame(() => document.getElementById('config-voz')?.scrollIntoView({ block: 'start' }));
+    return;
+  }
+  if (E.voz.leitura.falando) enviar({ tipo: 'pararLeitura' });
   enviar({ tipo: E.voz.gravando ? 'vozParar' : 'vozIniciar' });
 }
+
 function renderVoz(): void {
   if (!E) return;
-  btnVoz.classList.toggle('gravando', E.voz.gravando);
-  btnVoz.classList.toggle('indisponivel', !E.voz.disponivel);
-  btnVoz.title = !E.voz.disponivel ? `Voz indisponivel: ${E.voz.motivo ?? ''}` : E.voz.gravando ? 'Parar e transcrever' : 'Falar (transcricao local)';
+  const v = E.voz;
+  btnVoz.classList.toggle('gravando', v.gravando);
+  btnVoz.classList.toggle('indisponivel', !v.disponivel);
+  btnVoz.classList.toggle('ocupado', v.transcrevendo);
+  btnVoz.title = !v.disponivel ? `Configurar voz: ${v.motivo ?? ''}` : v.transcrevendo ? 'Transcrevendo...' : v.gravando ? 'Parar e transcrever' : 'Falar (transcricao local)';
+  btnVoz.setAttribute('aria-pressed', v.gravando ? 'true' : 'false');
+  if (v.gravando || v.transcrevendo) {
+    const seg = v.segundosGravados ?? 0;
+    barraGravacao.replaceChildren(
+      v.transcrevendo
+        ? h('span', {}, h('span', { class: 'girando', 'aria-hidden': 'true' }), ' Transcrevendo no seu computador...')
+        : h('span', {}, h('span', { class: 'ponto-gravando', 'aria-hidden': 'true' }), ` Gravando ${minSeg(seg)} / ${minSeg(v.limiteSegundos)}`),
+      ...(v.gravando ? [h('span', { class: 'acoes-gravacao' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: () => enviar({ tipo: 'vozParar' }) }, v.envioAutomatico ? 'Parar e enviar' : 'Parar e transcrever'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => enviar({ tipo: 'vozDescartar' }) }, 'Descartar'))] : []));
+    barraGravacao.hidden = false;
+  } else {
+    barraGravacao.hidden = true;
+  }
+  btnLeitura.classList.toggle('ativo', v.leitura.ativa);
+  btnLeitura.hidden = !v.leitura.disponivel;
+  btnLeitura.title = v.leitura.ativa ? 'Leitura automatica das respostas: ligada' : 'Leitura automatica das respostas: desligada';
+  btnLeitura.setAttribute('aria-pressed', v.leitura.ativa ? 'true' : 'false');
+}
+
+// Botao "ouvir" de cada fala de agente.
+function botaoOuvir(m: Mensagem): HTMLElement | null {
+  if (!E?.voz.leitura.disponivel || m.parcial) return null;
+  const falando = E.voz.leitura.falando === m.id;
+  return h('button', {
+    class: `bi ouvir ${falando ? 'ativo' : ''}`, type: 'button',
+    title: falando ? 'Parar leitura' : 'Ouvir esta resposta', 'aria-label': falando ? 'Parar leitura' : 'Ouvir esta resposta',
+    onclick: () => enviar(falando ? { tipo: 'pararLeitura' } : { tipo: 'lerMensagem', id: m.id }),
+  }, icone(falando ? 'parar' : 'som'));
+}
+
+function secaoVoz(): HTMLElement {
+  const v = E!.voz;
+  const faltando = v.componentes.filter((c) => c.situacao === 'ausente' || c.situacao === 'erro');
+  const instalando = v.componentes.some((c) => c.situacao === 'instalando');
+  const total = faltando.reduce((s, c) => s + (c.tamanhoBytes ?? 0), 0);
+
+  const linhaComponente = (c: ItemInstalacaoVoz) => {
+    const p = progressoVoz.get(c.componente);
+    const pct = p?.totalBytes ? Math.round(((p.baixadoBytes ?? 0) / p.totalBytes) * 100) : undefined;
+    return h('li', { class: `comp-voz s-${c.situacao}` },
+      h('div', { class: 'linha' },
+        h('strong', {}, c.nome),
+        h('span', { class: 'estado-comp' }, ({ instalado: 'instalado', ausente: 'nao instalado', instalando: 'instalando', erro: 'erro', manual: 'instalacao manual' } as const)[c.situacao]),
+        c.tamanhoBytes && c.situacao !== 'instalado' ? h('span', { class: 'nota' }, bytes(c.tamanhoBytes)) : null,
+        c.origem && c.situacao !== 'instalado' ? h('span', { class: 'nota' }, `de ${c.origem}`) : null),
+      c.situacao === 'instalando' && p
+        ? h('div', { class: 'progresso-voz' },
+          h('progress', { max: 100, value: pct ?? 0, 'aria-label': `Progresso de ${c.nome}` }),
+          h('span', { class: 'nota' }, p.etapa === 'baixando' ? `${pct ?? 0}%${p.totalBytes ? ` de ${bytes(p.totalBytes)}` : ''}` : p.etapa === 'verificando' ? 'conferindo integridade...' : p.etapa === 'extraindo' ? 'extraindo...' : (p.mensagem ?? '')))
+        : null,
+      c.situacao === 'manual' && c.comandoManual
+        ? h('div', { class: 'comando-manual' }, h('code', {}, c.comandoManual),
+          botaoIcone('copiar', 'Copiar comando', () => void navigator.clipboard.writeText(c.comandoManual!)))
+        : null,
+      c.mensagem && (c.situacao === 'erro' || c.situacao === 'manual') ? h('p', { class: `nota ${c.situacao === 'erro' ? 'erro-texto' : ''}` }, c.mensagem) : null);
+  };
+
+  const selecao = <T extends string>(rotulo: string, valor: string | undefined, opcoes: [string, string][], aoMudar: (v: T) => void, desabilitado = false) => {
+    const s = h('select', { class: 'campo', disabled: desabilitado }, ...opcoes.map(([id, nome]) => h('option', { value: id, selected: id === (valor ?? '') }, nome)));
+    s.addEventListener('change', () => aoMudar(s.value as T));
+    return h('label', { class: 'rotulo' }, rotulo, s);
+  };
+  const caixa = (rotulo: string, marcado: boolean, aoMudar: (v: boolean) => void) => {
+    const c = h('input', { type: 'checkbox', checked: marcado });
+    c.addEventListener('change', () => aoMudar(c.checked));
+    return h('label', { class: 'caixa' }, c, ` ${rotulo}`);
+  };
+  const velocidade = h('input', { type: 'range', min: 0.5, max: 2, step: 0.1, value: v.leitura.velocidade, 'aria-label': 'Velocidade da leitura' });
+  const rotuloVel = h('span', { class: 'nota' }, `${v.leitura.velocidade.toFixed(1)}x`);
+  velocidade.addEventListener('input', () => { rotuloVel.textContent = `${Number(velocidade.value).toFixed(1)}x`; });
+  velocidade.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', velocidade: Number(velocidade.value) }));
+
+  return h('section', { id: 'config-voz', class: 'secao-voz' },
+    h('h3', {}, 'Voz'),
+    h('p', { class: 'nota' }, 'Fala e audio sao processados somente neste computador. A gravacao e apagada logo apos a transcricao.'),
+    h('h4', {}, 'Falar'),
+    h('ul', { class: 'lista-comp' }, ...v.componentes.map(linhaComponente)),
+    faltando.length && !instalando
+      ? h('div', { class: 'consentimento' },
+        h('p', {}, `Para usar a voz, o Orquestrador precisa baixar ${faltando.length === 1 ? 'um componente' : `${faltando.length} componentes`}${total ? ` (${bytes(total)} no total)` : ''} das fontes oficiais listadas acima. Os arquivos ficam em ~/.orquestra/voz, sem alterar o sistema.`),
+        h('button', { class: 'btn primario', type: 'button', onclick: () => enviar({ tipo: 'vozInstalar', componentes: faltando.map((c) => c.componente) }) }, `Baixar e instalar${total ? ` (${bytes(total)})` : ''}`))
+      : null,
+    instalando ? h('button', { class: 'btn pequeno', type: 'button', onclick: () => enviar({ tipo: 'vozCancelarInstalacao' }) }, 'Cancelar instalacao') : null,
+    h('div', { class: 'grade' },
+      selecao('Microfone', v.dispositivo, [['', 'Padrao do sistema'], ...v.dispositivos.map((d) => [d.id, d.nome] as [string, string])], (d) => enviar({ tipo: 'vozConfigurar', dispositivo: d }), !v.dispositivos.length),
+      selecao<ModeloVoz>('Modelo de transcricao', v.modelo, (Object.keys(NOMES_MODELO) as ModeloVoz[]).map((m) => [m, NOMES_MODELO[m]]), (m) => enviar({ tipo: 'vozConfigurar', modelo: m })),
+      selecao<EstadoVoz['idioma']>('Idioma da fala', v.idioma, [['pt', 'Portugues'], ['en', 'Ingles'], ['es', 'Espanhol'], ['auto', 'Detectar automaticamente']], (i) => enviar({ tipo: 'vozConfigurar', idioma: i }))),
+    caixa('Enviar a mensagem automaticamente apos transcrever', v.envioAutomatico, (b) => enviar({ tipo: 'vozConfigurar', envioAutomatico: b })),
+    h('p', { class: 'nota' }, `Cada gravacao tem no maximo ${minSeg(v.limiteSegundos)}.`),
+    h('h4', {}, 'Ouvir'),
+    !v.leitura.disponivel
+      ? h('p', { class: 'nota' }, v.leitura.motivo ?? 'Nenhuma voz do sistema foi encontrada.')
+      : h('div', { class: 'pilha' },
+        caixa('Ler automaticamente as respostas dos agentes', v.leitura.ativa, (b) => enviar({ tipo: 'leituraConfigurar', ativa: b })),
+        h('div', { class: 'grade' },
+          selecao('Voz', v.leitura.voz, v.leitura.vozes.map((x) => [x.id, x.nome] as [string, string]), (id) => enviar({ tipo: 'leituraConfigurar', voz: id }), !v.leitura.vozes.length),
+          h('label', { class: 'rotulo' }, 'Velocidade', h('span', { class: 'linha' }, velocidade, rotuloVel))),
+        h('p', { class: 'nota' }, 'A leitura usa a voz instalada no seu sistema operacional. Blocos de codigo nao sao lidos.')));
 }
 
 // ---------- vistas: agentes e configuracoes ----------
@@ -560,6 +681,7 @@ function vistaConfig(): HTMLElement {
       campoNumero('Texto: tamanho maximo (MB)', l.textoMaxMB, 1, 2, lim('textoMaxMB')),
       campoNumero('Imagem: tamanho maximo (MB)', l.imagemMaxMB, 1, 10, lim('imagemMaxMB')),
       campoNumero('PDF/Word: tamanho maximo (MB)', l.documentoMaxMB, 1, 20, lim('documentoMaxMB'))),
+    secaoVoz(),
     h('h3', {}, 'Dados'),
     h('p', { class: 'nota' }, 'Conversas, acoes e anexos ficam somente neste computador, em ~/.orquestra/dados. Nada e enviado sem seu pedido.'),
     h('button', { class: 'btn', type: 'button', onclick: () => enviar({ tipo: 'exportarConversa' }) }, icone('exportar'), ' Exportar esta conversa'));
@@ -646,6 +768,19 @@ ouvir((m: DoHost) => {
     case 'aprovacao': E.aprovacoes = substituir(E.aprovacoes, m.pedido); renderAprovacoes(); break;
     case 'aprovacaoResolvida': E.aprovacoes = E.aprovacoes.filter((p) => p.id !== m.id); renderAprovacoes(); break;
     case 'configuracao': E.configuracao = m.configuracao; renderTudo(); break;
+    case 'estadoVoz': {
+      const falandoAntes = E.voz.leitura.falando;
+      E.voz = m.voz;
+      for (const c of m.voz.componentes) if (c.situacao !== 'instalando') progressoVoz.delete(c.componente);
+      if (falandoAntes !== m.voz.leitura.falando) renderMensagensDepois();
+      if (vista === 'config') renderTudo(); else renderVoz();
+      break;
+    }
+    case 'vozInstalacao':
+      progressoVoz.set(m.progresso.componente, m.progresso);
+      if (m.progresso.etapa === 'erro' && m.progresso.mensagem) avisar(m.progresso.mensagem);
+      if (vista === 'config') renderTudo();
+      break;
     case 'voz':
       E.voz = { ...E.voz, gravando: m.gravando };
       if (m.transcricao) { texto.value = `${texto.value}${texto.value && !texto.value.endsWith(' ') ? ' ' : ''}${m.transcricao}`; ajustarAltura(); texto.focus(); salvarLocal({ rascunho: texto.value }); }

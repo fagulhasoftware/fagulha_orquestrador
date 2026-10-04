@@ -2,7 +2,7 @@
   "name": "orquestrador-fagulha",
   "displayName": "Orquestrador Fagulha",
   "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "FagulhaSoftware",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -51,6 +51,11 @@
       {
         "command": "fagulha.abrirNoEditor",
         "title": "Orquestrador Fagulha: Abrir no editor"
+      },
+      {
+        "command": "fagulha.vozAlternar",
+        "title": "Orquestrador Fagulha: Falar / parar",
+        "enablement": "fagulha.painelAberto"
       }
     ],
     "viewsContainers": {
@@ -188,7 +193,15 @@
           "description": "baseUrl do provedor gemini-api. Vazio usa a deteccao ou valor padrao."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "fagulha.vozAlternar",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "fagulha.painelAberto"
+      }
+    ]
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
@@ -218,5 +231,12 @@
       "unzipper": "^0.12.3",
       "uuid": "^11.1.1"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fagulhasoftware/fagulha_orquestrador.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fagulhasoftware/fagulha_orquestrador/issues"
   }
 }

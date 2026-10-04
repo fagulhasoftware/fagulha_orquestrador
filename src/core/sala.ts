@@ -16,6 +16,7 @@ import { montarContexto } from './contexto';
 import type { AnexoArmazenado } from '../attachments/pipeline';
 import type { ContextoCompleto } from '../context-import/importador';
 import { Portao } from '../permissions/portao';
+import { estadoInicialVoz } from '../voice/configuracao';
 export function chaveSala(raizes: string[]): string {
   const normalizadas = raizes
     .map((p) => (process.platform === 'win32' ? p.toLowerCase() : p))
@@ -66,11 +67,7 @@ export class Sala {
   readonly anexosPendentes = new Set<string>();
   config = configuracaoPadrao();
   primeiraExecucao = true;
-  voz: EstadoSala['voz'] = {
-    disponivel: false,
-    gravando: false,
-    motivo: 'Voz local aguardando deteccao.',
-  };
+  voz: EstadoSala['voz'] = estadoInicialVoz();
   private sessoes = new Map<string, Sessao>();
   private fila: { id: string; saltos: number }[] = [];
   private atual?: { id: string; controle: AbortController };

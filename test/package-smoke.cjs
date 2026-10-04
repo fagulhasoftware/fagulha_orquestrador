@@ -96,7 +96,22 @@ async function main() {
       const pacote = JSON.parse(await readFile(join(raiz, 'package.json'), 'utf8'));
       assert.equal(pacote.name, 'orquestrador-fagulha');
       assert.equal(pacote.displayName, 'Orquestrador Fagulha');
-      assert.equal(pacote.publisher, 'fagulha');
+      assert.equal(pacote.publisher, 'FagulhaSoftware');
+      assert.equal(pacote.version, version);
+      assert.equal(
+        pacote.repository.url,
+        'https://github.com/fagulhasoftware/fagulha_orquestrador.git',
+      );
+      assert.equal(
+        pacote.bugs.url,
+        'https://github.com/fagulhasoftware/fagulha_orquestrador/issues',
+      );
+      assert(pacote.contributes.commands.some((c) => c.command === 'fagulha.vozAlternar'));
+      assert(
+        pacote.contributes.keybindings.some(
+          (k) => k.command === 'fagulha.vozAlternar' && k.when === 'fagulha.painelAberto',
+        ),
+      );
       assert.equal(pacote.icon, 'media/logo.png');
       assert.equal(pacote.contributes.viewsContainers.activitybar[0].icon, 'media/logo-barra.png');
       assert.equal(pacote.contributes.views.fagulha[0].id, 'fagulha.sala');

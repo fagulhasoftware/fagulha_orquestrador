@@ -305,3 +305,37 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 }
 @keyframes girar { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .girando { animation: none; } }
+
+/* ---------- voz: falar e ouvir (v3) ---------- */
+.barra-gravacao {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 6px; padding: 5px 8px; border: 1px solid var(--erro); border-radius: var(--raio);
+  font-variant-numeric: tabular-nums;
+}
+.acoes-gravacao { display: inline-flex; gap: 6px; }
+.ponto-gravando {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--erro);
+  vertical-align: 0; animation: pulso 1s ease-in-out infinite;
+}
+.bi.ocupado { opacity: .6; cursor: progress; }
+.bi.ouvir { width: 22px; height: 22px; margin-left: auto; opacity: 0; color: var(--suave); }
+.bi.ouvir .ic { width: 14px; height: 14px; }
+.msg.fala:hover .bi.ouvir, .bi.ouvir:focus-visible, .bi.ouvir.ativo { opacity: 1; }
+.bi.ouvir.ativo { color: var(--vscode-textLink-foreground); }
+.secao-voz { display: flex; flex-direction: column; gap: 8px; }
+.secao-voz h4 { margin: 6px 0 0; font-size: .95em; }
+.lista-comp { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.comp-voz { padding: 6px 8px; border: 1px solid var(--borda); border-radius: var(--raio); display: flex; flex-direction: column; gap: 4px; }
+.estado-comp { font-size: .85em; padding: 0 6px; border-radius: 8px; background: var(--hover); }
+.s-instalado .estado-comp { color: var(--ok); }
+.s-ausente .estado-comp, .s-manual .estado-comp { color: var(--alerta); }
+.s-erro .estado-comp, .erro-texto { color: var(--erro); }
+.progresso-voz { display: flex; align-items: center; gap: 8px; }
+.progresso-voz progress { flex: 1; height: 6px; accent-color: var(--primario); }
+.comando-manual { display: flex; align-items: center; gap: 4px; }
+.comando-manual code { flex: 1; padding: 3px 6px; background: var(--codigo); border-radius: 4px; font-family: var(--vscode-editor-font-family); overflow-x: auto; white-space: nowrap; }
+.consentimento { padding: 8px 10px; border: 1px dashed var(--foco); border-radius: var(--raio); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.consentimento p { margin: 0; }
+.caixa { display: flex; align-items: center; gap: 4px; font-size: .92em; cursor: pointer; }
+.pilha { display: flex; flex-direction: column; gap: 8px; }
+.secao-voz input[type="range"] { flex: 1; accent-color: var(--primario); }

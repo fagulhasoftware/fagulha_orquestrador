@@ -22,6 +22,9 @@ Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da F
   (ex.: "arquiteto", "revisor").
 - **Anexos**: texto, código, Markdown, imagens, PDF e Word. Planilhas nunca são lidas por inteiro:
   o Orquestrador envia apenas cabeçalho e amostra de linhas, com limite de tamanho.
+- **Chat por voz**: fale com a sala pelo microfone e ouça as respostas dos agentes. A transcrição
+  (whisper.cpp) e a leitura (voz do sistema) acontecem no seu computador; a gravação é apagada após a
+  transcrição. Os componentes de voz são baixados só com a sua autorização.
 - **Contexto de outros chats**: importe conversas anteriores do Claude Code, do Codex ou de outras salas.
 - **Extensível**: novos agentes por manifesto ou por outras extensões (`FagulhaSoftware.orquestrador-fagulha`).
 
@@ -65,7 +68,8 @@ Detalhes em [PRIVACIDADE.md](https://github.com/fagulhasoftware/fagulha_orquestr
 
 ## Limitações conhecidas
 
-- Entrada por voz ainda não está disponível.
+- Voz: instalação automática dos componentes no Windows; no macOS e no Linux, o assistente indica o comando
+  de instalação do ffmpeg e do whisper.cpp.
 - Planilhas `.xls`, `.xlsb` e `.ods` são recusadas; converta para `.xlsx` ou `.csv`.
 
 ## Desenvolvimento

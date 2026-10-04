@@ -1,5 +1,15 @@
 # Histórico de versões
 
+## 0.2.0 — em desenvolvimento
+
+- **Chat por voz:** fale com a sala pelo microfone; a transcrição é feita no seu computador
+  (whisper.cpp, modelo `small` por padrão) e a gravação é apagada em seguida.
+- **Ouvir respostas:** leitura em voz alta das falas dos agentes com a voz do sistema, automática ou
+  por mensagem.
+- **Assistente de instalação da voz:** mostra origem e tamanho de cada componente e só baixa com a sua
+  autorização, conferindo a integridade dos arquivos.
+- Links para o repositório e para relatar problemas na página da extensão.
+
 ## 0.1.0 — 2026-10
 
 Primeira versão pública.
