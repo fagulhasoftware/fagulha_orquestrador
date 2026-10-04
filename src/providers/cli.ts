@@ -1,12 +1,22 @@
 import { access, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { Provedor, PedidoExecucao, EventosProvedor, Deteccao } from './tipos';
 import { agentePadrao, type Segredos } from './tipos';
 import { rodar } from './processo';
 import type { EstadoLogin, ModoAgente, NivelPermissao } from '../shared/protocolo';
 import { mascarar, protegerSegredo } from '../core/seguranca';
 import { opcoesLogin, rodarLogin, contaMascarada, type ConfigLogin } from './login';
+import {
+  descobrirMcp,
+  isolamentoMcp,
+  lerMcpTexto,
+  tomlString,
+  filtroAvisoCodex,
+  avisoConfigCodex,
+  type McpHerdado,
+} from './codex-mcp';
 
 export type CliId = 'claude' | 'codex' | 'gemini';
 export function montarArgumentos(
@@ -17,7 +27,7 @@ export function montarArgumentos(
   config = 'mcp.json',
   servidor = 'mcp-servidor.js',
   node = process.execPath,
-  herdados: string[] = [],
+  herdados: McpHerdado[] = [],
 ): string[] {
   const leitura = nivel === 'manual' || modo === 'leitura';
   if (id === 'claude') {
@@ -56,6 +66,7 @@ export function montarArgumentos(
           `sandbox_mode="${sandbox}"`,
         ]
       : ['exec', '--json', '--skip-git-repo-check', '--sandbox', sandbox];
+    args.push(...isolamentoMcp(herdados, nivel).args);
     args.push(
       '-c',
       'approval_policy="never"',
@@ -78,9 +89,9 @@ export function montarArgumentos(
       '-c',
       'project_doc_max_bytes=0',
       '-c',
-      `mcp_servers.fagulha_orquestrador.command=${JSON.stringify(node)}`,
+      `mcp_servers.fagulha_orquestrador.command=${tomlString(node)}`,
       '-c',
-      `mcp_servers.fagulha_orquestrador.args=${JSON.stringify([servidor])}`,
+      `mcp_servers.fagulha_orquestrador.args=[${tomlString(servidor)}]`,
       '-c',
       `mcp_servers.fagulha_orquestrador.env={}`,
       '-c',
@@ -88,11 +99,6 @@ export function montarArgumentos(
       '-c',
       `mcp_servers.fagulha_orquestrador.env_vars=${JSON.stringify(['ORQUESTRA_BRIDGE_URL', 'ORQUESTRA_BRIDGE_TOKEN', 'ELECTRON_RUN_AS_NODE'])}`,
     );
-    for (const nome of herdados) {
-      if (!/^[\w-]+$/.test(nome) || nome === 'fagulha_orquestrador')
-        throw new Error('Nome MCP herdado invalido ou reservado (fagulha_orquestrador).');
-      args.push('-c', `mcp_servers.${nome}.enabled=false`);
-    }
     if (nivel === 'manual')
       args.push(
         '-c',
@@ -126,28 +132,9 @@ async function existe(p: string): Promise<boolean> {
     return false;
   }
 }
-// A saida de tabela do CLI mascara valores de ambiente. Conservamos apenas a coluna Name,
-// sem abrir config.toml, auth.json ou qualquer arquivo de credenciais.
+// Compatibilidade para consumidores da antiga funcao de nomes.
 export function nomesMcp(tabela: string): string[] {
-  const nomes = new Set<string>();
-  let cabecalho = false;
-  for (const linha of tabela.split(/\r?\n/)) {
-    if (/^Name\s+/.test(linha)) {
-      cabecalho = true;
-      continue;
-    }
-    if (!linha.trim()) {
-      cabecalho = false;
-      continue;
-    }
-    if (!cabecalho) continue;
-    const nome = linha.match(/^([\w-]+)\s+/)?.[1];
-    if (!nome) throw new Error('Formato de lista MCP nao reconhecido.');
-    nomes.add(nome);
-  }
-  if (!cabecalho && nomes.size === 0 && !/No MCP servers configured/i.test(tabela))
-    throw new Error('Nao foi possivel verificar MCPs herdados.');
-  return [...nomes];
+  return [...new Set(lerMcpTexto(tabela).map((mcp) => mcp.nome))];
 }
 export async function localizar(
   id: CliId,
@@ -376,6 +363,7 @@ export class ProvedorCli implements Provedor {
     return cwd;
   }
   private readonly avisosEnv = new Set<string>();
+  private readonly avisosCodex = new Map<string, Set<string>>();
   private async avisarEnv(cwd: string, sessao: string, ev: EventosProvedor): Promise<void> {
     if (this.id !== 'gemini' || this.avisosEnv.has(sessao)) return;
     // Gemini carrega .env do home mesmo com --ignore-env. Inspeciona SOMENTE existencia,
@@ -490,20 +478,55 @@ export class ProvedorCli implements Provedor {
       p.nivel === 'manual' ? (this.isolamento ? await this.cwd() : p.ponte.diretorio) : p.projeto;
     await mkdir(cwd, { recursive: true });
     await this.avisarEnv(cwd, p.sessao ?? 'nova', ev);
-    let herdados: string[] = [];
+    let avisos = this.avisosCodex.get(p.sessao ?? '') ?? new Set<string>();
+    const chaveSessao = p.sessao ?? randomUUID();
+    this.avisosCodex.set(chaveSessao, avisos);
+    const avisar = (tipo: string, texto: string) => {
+      if (avisos.has(tipo)) return;
+      avisos.add(tipo);
+      (ev.sistema ?? ev.acao)(mascarar(texto));
+    };
+    const avisarConfig = () => avisar('config', avisoConfigCodex);
+    let herdados: McpHerdado[] = [];
     if (this.id === 'codex') {
       try {
-        herdados = nomesMcp(
-          await rodar(this.bin.cmd, [...this.bin.prefixo, 'mcp', 'list'], {
-            cwd,
-            env,
-            sinal,
-            timeoutMs: 15_000,
-          }),
-        );
+        let obsoletas = false;
+        const descoberta = await descobrirMcp(this.bin, env, async (json) => {
+          const saida = await rodar(
+            this.bin!.cmd,
+            [...this.bin!.prefixo, 'mcp', 'list', ...(json ? ['--json'] : [])],
+            {
+              cwd,
+              env,
+              sinal,
+              timeoutMs: 15_000,
+              filtrarLinha: filtroAvisoCodex(() => {
+                obsoletas = true;
+                avisarConfig();
+              }),
+            },
+          );
+          return { saida, obsoletas };
+        });
+        herdados = descoberta.servidores;
+        if (descoberta.obsoletas) avisarConfig();
       } catch {
-        throw new Error('Nao foi possivel neutralizar MCPs herdados do Codex. Execucao recusada.');
+        if (sinal.aborted) throw new Error('Execucao interrompida.');
+        if (p.nivel === 'manual')
+          throw new Error(
+            'Nao foi possivel verificar MCPs herdados do Codex. Execucao recusada: o nivel Manual exige isolamento.',
+          );
+        avisar(
+          'mcp',
+          'Aviso: nao foi possivel listar MCPs herdados do Codex; servidores de nomes desconhecidos podem continuar ativos nesta sessao.',
+        );
       }
+      const { ativos } = isolamentoMcp(herdados, p.nivel);
+      if (ativos.length)
+        avisar(
+          'mcp',
+          `Aviso: os MCPs herdados do Codex ${ativos.join(', ')} podem continuar ativos nesta sessao porque seu transporte nao pode ser isolado com seguranca.`,
+        );
     }
     const args = montarArgumentos(
       this.id,
@@ -520,6 +543,7 @@ export class ProvedorCli implements Provedor {
       env,
       stdin: p.prompt,
       sinal,
+      filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,
       linha: (l) => {
         if (l.trim().startsWith('{')) {
           let j;
@@ -530,8 +554,19 @@ export class ProvedorCli implements Provedor {
           }
           lerEvento(this.id, j, {
             ...ev,
+            erro: (texto) => {
+              if (this.id === 'codex' && !filtroAvisoCodex(avisarConfig)(texto)) return;
+              ev.erro(texto);
+            },
             sessao: (id) => {
               if (this.avisosEnv.delete('nova')) this.avisosEnv.add(id);
+              if (this.id === 'codex') {
+                const anteriores = this.avisosCodex.get(id);
+                if (anteriores) for (const tipo of avisos) anteriores.add(tipo);
+                avisos = anteriores ?? avisos;
+                this.avisosCodex.delete(chaveSessao);
+                this.avisosCodex.set(id, avisos);
+              }
               ev.sessao(id);
             },
           });

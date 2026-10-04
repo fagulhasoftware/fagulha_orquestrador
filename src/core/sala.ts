@@ -361,6 +361,9 @@ export class Sala {
             acao: (txt) => {
               this.mensagem(a.nick, txt, 'acao');
             },
+            sistema: (txt) => {
+              this.mensagem('sistema', txt, 'sistema');
+            },
             erro: (txt) => {
               falhou = true;
               this.mensagem(a.nick, txt, 'erro');

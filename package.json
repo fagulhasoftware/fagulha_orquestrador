@@ -216,6 +216,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@iarna/toml": "^2.2.5",
     "@types/node": "^22.0.0",
     "@types/sql.js": "^1.4.9",
     "@types/unzipper": "^0.10.11",

@@ -3,6 +3,7 @@ const { mkdir, mkdtemp, writeFile, rm } = require('node:fs/promises');
 const { join, resolve, sep } = require('node:path');
 const { localizar, montarArgumentos } = require('../test/.tmp/build/src/providers/cli.js');
 const { rodar } = require('../test/.tmp/build/src/providers/processo.js');
+const { lerMcpJson } = require('../test/.tmp/build/src/providers/codex-mcp.js');
 async function main() {
   const bin = await localizar('codex');
   if (!bin) throw new Error('Codex indisponivel.');
@@ -36,7 +37,7 @@ async function main() {
       undefined,
       resolve('dist/mcp-servidor.js'),
       process.execPath,
-      ['herdado_teste'],
+      lerMcpJson(JSON.stringify(vazio)),
     );
     const overrides = [];
     for (let i = 0; i < montagem.length; i++)

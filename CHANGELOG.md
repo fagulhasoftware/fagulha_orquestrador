@@ -10,6 +10,14 @@
   autorização, conferindo a integridade dos arquivos.
 - Links para o repositório e para relatar problemas na página da extensão.
 
+## 0.1.1
+
+- Corrigido o bloqueio ao iniciar ou retomar conversas com o Codex quando há servidores MCP de plugins
+  instalados. No nível Manual, a conversa só começa quando o isolamento pode ser garantido; nos demais
+  níveis, a sala avisa se algum servidor MCP herdado continuar ativo.
+- Configurações obsoletas no `config.toml` do Codex agora geram um aviso informativo, uma vez por sessão,
+  sem marcar o agente como erro.
+
 ## 0.1.0 — 2026-10
 
 Primeira versão pública.

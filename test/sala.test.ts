@@ -25,6 +25,31 @@ function fake(
     executar: responder,
   };
 }
+
+test('aviso do provedor e mensagem neutra de sistema e agente permanece livre', async () => {
+  const tmp = await temporario();
+  try {
+    const sala = new Sala('aviso', null, 'Sala', await banco(tmp.pasta));
+    sala.registrar(
+      fake('codex', async (_, ev) => {
+        ev.sistema!(
+          'O Codex ignorou configuracoes obsoletas no seu config.toml: features.rmcp_client, mcp. Isso nao afeta o Orquestrador.',
+        );
+        ev.fala('concluido');
+      }),
+    );
+    await sala.iniciar();
+    sala.enviar('@codex continue', []);
+    await sala.esperar();
+    const aviso = sala.mensagens.find((m) => m.texto.startsWith('O Codex ignorou'));
+    assert.equal(aviso?.autor, 'sistema');
+    assert.equal(aviso?.tipo, 'sistema');
+    assert.equal(sala.agentes[0].estado, 'livre');
+    assert(!sala.mensagens.some((m) => m.tipo === 'erro'));
+  } finally {
+    await tmp.limpar();
+  }
+});
 test('mencoes aliases todos limites e ausencia de mencao', () => {
   const a = ['claude', 'codex', 'gemini'].map((id) => fake(id, async () => {}).agente);
   assert.deepEqual(mencoes('oi', a), []);

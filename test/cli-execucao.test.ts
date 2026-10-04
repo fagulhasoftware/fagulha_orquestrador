@@ -19,7 +19,7 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         `
         const fs=require('fs');const args=process.argv.slice(2);
         if(args.includes('--version')){console.log('fixture 1.0');process.exit(0);}
-        if(args[0]==='mcp'){console.log('Name Command Args Env Cwd Status Auth\\nherdado node - - - enabled Unsupported');process.exit(0);}
+        if(args[0]==='mcp'){console.log(JSON.stringify([{name:'herdado',enabled:true,transport:{type:'stdio',command:'node',args:[]}}]));process.exit(0);}
         const settings=process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
         fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({cwd:process.cwd(),args,home:process.env.CODEX_HOME,chaveGeminiPresente:process.env.GEMINI_API_KEY==='fixture-gemini-apenas-em-memoria-0000',settings:settings?JSON.parse(fs.readFileSync(settings,'utf8')):null}));
         console.log(JSON.stringify({type:'init',session_id:'fixture-sessao'}));
@@ -70,7 +70,10 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         assert(!hibrido.args.includes('--bare'));
         assert(!hibrido.args.includes('--tools'));
       }
-      if (id === 'codex') assert(hibrido.args.includes('mcp_servers.herdado.enabled=false'));
+      if (id === 'codex')
+        assert(
+          hibrido.args.includes('mcp_servers={"herdado"={command="node",args=[],enabled=false}}'),
+        );
       if (id === 'gemini') {
         assert.equal(hibrido.settings.tools.core, undefined);
         assert(hibrido.settings.tools.exclude.includes('run_shell_command'));
