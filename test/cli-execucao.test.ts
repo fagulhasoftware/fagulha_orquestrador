@@ -21,12 +21,12 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         if(args.includes('--version')){console.log('fixture 1.0');process.exit(0);}
         if(args[0]==='mcp'){console.log('Name Command Args Env Cwd Status Auth\\nherdado node - - - enabled Unsupported');process.exit(0);}
         const settings=process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
-        fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({cwd:process.cwd(),args,home:process.env.CODEX_HOME,chaveGeminiPresente:process.env.GEMINI_API_KEY==='AIza-fixture-apenas-em-memoria-0000',settings:settings?JSON.parse(fs.readFileSync(settings,'utf8')):null}));
+        fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({cwd:process.cwd(),args,home:process.env.CODEX_HOME,chaveGeminiPresente:process.env.GEMINI_API_KEY==='fixture-gemini-apenas-em-memoria-0000',settings:settings?JSON.parse(fs.readFileSync(settings,'utf8')):null}));
         console.log(JSON.stringify({type:'init',session_id:'fixture-sessao'}));
       `,
       );
       const provedor = new ProvedorCli(id, async () => {}, mock, join(tmp.pasta, 'scratch'), {
-        get: async () => 'AIza-fixture-apenas-em-memoria-0000',
+        get: async () => 'fixture-gemini-apenas-em-memoria-0000',
         store: async () => {},
       });
       assert.equal((await provedor.detectar()).instalado, true);
@@ -59,7 +59,7 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         assert.equal(manual.settings.security.auth.selectedType, 'gemini-api-key');
         assert.equal(manual.settings.security.auth.enforcedType, 'gemini-api-key');
         assert.equal(manual.chaveGeminiPresente, true);
-        assert(!JSON.stringify(manual).includes('AIza-fixture-apenas-em-memoria-0000'));
+        assert(!JSON.stringify(manual).includes('fixture-gemini-apenas-em-memoria-0000'));
       }
       pedido.nivel = 'parcial';
       await provedor.executar(pedido, ev, new AbortController().signal);

@@ -6,7 +6,7 @@ Produto da Fagulha. Nomenclatura oficial:
 | Item | Valor |
 |---|---|
 | Nome exibido | Orquestrador Fagulha |
-| Identificador da extensao | `fagulha.orquestrador-fagulha` |
+| Identificador da extensao | `FagulhaSoftware.orquestrador-fagulha` |
 | Comandos, paineis e configuracoes | `fagulha.*` |
 | Canal da sala | `#fagulha_orquestrador` |
 | Servidor MCP dos agentes | `fagulha_orquestrador` (ferramentas `mcp__fagulha_orquestrador__*`) |
@@ -87,7 +87,7 @@ Extensibilidade:
    `openai-compativel`): comando, argumentos com marcadores (`{prompt}`, `{sessao}`, `{modo}`),
    formato de saida (`texto` ou `jsonl` com mapeamento de campos), suporte a imagem, comando de login.
 2. **Outras extensoes**: `activate()` exporta `{ registrarProvedor(prov) }`; uma extensao terceira
-   declara `extensionDependencies: ["fagulha.orquestrador-fagulha"]` e registra seu agente.
+   declara `extensionDependencies: ["FagulhaSoftware.orquestrador-fagulha"]` e registra seu agente.
 3. Tela "Agentes" na interface: instalar (manifesto ou link para extensao), habilitar/desabilitar,
    login, papel, modo de permissao.
 

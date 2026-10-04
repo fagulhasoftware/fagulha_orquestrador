@@ -32,7 +32,8 @@ import { matarArvore } from '../src/providers/processo';
 const chaves: Record<TipoChave, string> = {
   openai: 'sk-fixture-openai-apenas-teste-1234',
   anthropic: 'sk-ant-fixture-anthropic-apenas-teste-2345',
-  gemini: 'REDACTED_FIXTURE',
+  // Compoe uma fixture valida sem versionar um literal com formato de chave completa.
+  gemini: ['AIza', 'FixtureGeminiApenasTesteNaoReal3456'].join(''),
   compativel: 'fixture-compativel-apenas-teste-4567',
 };
 function segredosMemoria() {

@@ -86,7 +86,7 @@ for (const conteudo of [
   'NATHA',
   'Talos',
   'PontoCerto',
-  'fagulhasoftware',
+  'fagulhasoftware@',
   'colaborador@example.test',
   'sk-fixture-key-nao-real-123456',
   'sk-ant-fixture-key-nao-real-123456',
@@ -204,4 +204,9 @@ test('CLI da guarda reprova com codigo 1 e nao imprime segredo encontrado', asyn
   } finally {
     await tmp.limpar();
   }
+});
+
+test('ID oficial do publicador FagulhaSoftware e permitido; e-mail continua bloqueado', () => {
+  assert.equal(guarda.motivosConteudo('"publisher": "FagulhaSoftware"', usuarioFixture).length, 0);
+  assert(guarda.motivosConteudo('contato: fagulhasoftware@exemplo.com', usuarioFixture).length > 0);
 });

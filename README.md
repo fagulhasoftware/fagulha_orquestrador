@@ -23,7 +23,7 @@ Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da F
 - **Anexos**: texto, código, Markdown, imagens, PDF e Word. Planilhas nunca são lidas por inteiro:
   o Orquestrador envia apenas cabeçalho e amostra de linhas, com limite de tamanho.
 - **Contexto de outros chats**: importe conversas anteriores do Claude Code, do Codex ou de outras salas.
-- **Extensível**: novos agentes por manifesto ou por outras extensões (`fagulha.orquestrador-fagulha`).
+- **Extensível**: novos agentes por manifesto ou por outras extensões (`FagulhaSoftware.orquestrador-fagulha`).
 
 ## Requisitos
 

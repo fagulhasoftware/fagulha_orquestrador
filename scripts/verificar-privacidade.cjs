@@ -52,7 +52,7 @@ function motivosConteudo(conteudo, usuario = usuarioAtual()) {
     motivos.push('caminho de diretorio pessoal');
   if (usuario && new RegExp(escaparRegex(usuario), 'i').test(texto))
     motivos.push('usuario da maquina de empacotamento');
-  if (/Nathan|natha|Talos|PontoCerto|fagulhasoftware/i.test(texto))
+  if (/Nathan|natha|Talos|PontoCerto|fagulhasoftware@/i.test(texto))
     motivos.push('identificador pessoal ou de outro projeto');
   if (temEmail(texto)) motivos.push('endereco de e-mail');
   // Exige caracteres de chave depois do prefixo. Classes/escapes dos literais de
