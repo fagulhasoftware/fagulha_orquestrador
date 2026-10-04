@@ -47,7 +47,7 @@ export async function activate(
     join(pasta, 'orquestra.sqlite'),
     join(context.extensionPath, 'dist', 'sql-wasm.wasm'),
   );
-  await storage.iniciar();
+  await storage.iniciar({ sala: id, projeto, titulo: projeto ? basename(projeto) : 'Sala avulsa' });
   const sala = new Sala(id, projeto, projeto ? basename(projeto) : 'Sala avulsa', storage);
   const cfg = () => vscode.workspace.getConfiguration('fagulha');
   const opcoes = (id: string): OpcoesProvedor => {
@@ -172,7 +172,7 @@ export async function activate(
     );
     const capacidade = ponte.criar(agente.id, sinal);
     protegerSegredo(capacidade.token);
-    const diretorio = join(pasta, 'sessoes', sala.id, agente.id, randomUUID());
+    const diretorio = join(pasta, 'sessoes', sala.chat.id, agente.id, randomUUID());
     const regras: string[] = [];
     try {
       if (projeto && agente.modo !== 'escrita')
@@ -233,6 +233,24 @@ export async function activate(
   });
   const aviso = (texto: string) =>
     sala.emitir({ tipo: 'aviso', nivel: 'erro', texto: mascarar(texto) });
+  const prepararTroca = async () => {
+    await voz.descartar();
+    await voz.pararLeitura();
+  };
+  const exportarChat = async (id: string) => {
+    const mensagens = await sala.mensagensChat(id);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: projeto ? vscode.Uri.file(join(projeto, 'fagulha-conversa.md')) : undefined,
+      filters: { Markdown: ['md'] },
+    });
+    if (!uri) return;
+    const real = await caminhoReal(uri.fsPath, true);
+    await writeFile(
+      real,
+      mascarar(mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n')),
+      'utf8',
+    );
+  };
   const login = new GestorLogin({
     provedor: (id) => sala.provedores.get(id),
     emitir: (evento) => sala.emitir(evento),
@@ -261,6 +279,7 @@ export async function activate(
           protegerSegredo(entrada.chave);
         const m = validarMensagem(entrada);
         if (m.tipo === 'pronto') {
+          await sala.sincronizar();
           await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
           for (const progresso of login.progresso())
             await webview.postMessage({ tipo: 'login', progresso } satisfies DoHost);
@@ -282,12 +301,62 @@ export async function activate(
             'vozConfigurar',
             'leituraConfigurar',
             'lerMensagem',
+            'novoChat',
+            'listarChats',
+            'abrirChat',
+            'renomearChat',
+            'fixarChat',
+            'excluirChat',
+            'exportarChat',
+            'listarMemorias',
+            'salvarMemoria',
+            'excluirMemoria',
+            'exportarConversa',
           ].includes(m.tipo)
         )
           throw new Error(
             'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
           );
         switch (m.tipo) {
+          case 'novoChat':
+            await prepararTroca();
+            await sala.novoChat();
+            break;
+          case 'listarChats':
+            await sala.listarChats(m.busca);
+            break;
+          case 'abrirChat':
+            await prepararTroca();
+            await sala.abrirChat(m.id);
+            break;
+          case 'renomearChat':
+            await sala.renomearChat(m.id, m.titulo);
+            break;
+          case 'fixarChat':
+            await sala.fixarChat(m.id, m.fixado);
+            break;
+          case 'excluirChat': {
+            if (m.id === sala.chat.id) await prepararTroca();
+            const arquivos = await sala.excluirChat(m.id);
+            await anexador.excluirSemReferencia(arquivos, async (arquivo) =>
+              (await storage.listar<{ arquivo?: string }>('anexos')).some(
+                (a) => a.arquivo === arquivo,
+              ),
+            );
+            break;
+          }
+          case 'exportarChat':
+            await exportarChat(m.id);
+            break;
+          case 'listarMemorias':
+            await sala.atualizarMemorias();
+            break;
+          case 'salvarMemoria':
+            await sala.salvarMemoria(m);
+            break;
+          case 'excluirMemoria':
+            await sala.excluirMemoria(m.id);
+            break;
           case 'enviar':
             sala.enviar(m.texto, m.anexos);
             break;
@@ -333,11 +402,14 @@ export async function activate(
             break;
           case 'importarContexto': {
             const candidatos = await descobrirContextos();
-            const outras = await storage.listar<Mensagem>('mensagens');
-            const salas = [...new Set(outras.map((m) => m.sala))].filter((s) => s !== sala.id);
+            const chats = (await sala.chats.listar()).filter((c) => c.id !== sala.chat.id);
             const itens = [
               ...candidatos.map((c) => ({ label: c.titulo, description: c.origem, c })),
-              ...salas.map((s) => ({ label: s, description: 'Orquestrador Fagulha', s })),
+              ...chats.map((c) => ({
+                label: c.titulo,
+                description: c.projetoNome ?? 'Sem projeto',
+                s: c.id,
+              })),
             ];
             const selecionado = await vscode.window.showQuickPick(itens, {
               title: 'Importar contexto local',
@@ -346,8 +418,7 @@ export async function activate(
             if (selecionado && 'c' in selecionado)
               await sala.adicionarContexto(await importarContexto(selecionado.c));
             if (selecionado && 's' in selecionado) {
-              const texto = outras
-                .filter((m) => m.sala === selecionado.s)
+              const texto = (await sala.mensagensChat(selecionado.s))
                 .map((m) => `${m.autor}: ${m.texto}`)
                 .join('\n')
                 .slice(-12000);
@@ -367,7 +438,7 @@ export async function activate(
             await sala.removerContexto(m.id);
             break;
           case 'responderAprovacao':
-            sala.portao.responder(m.id, m.decisao);
+            await sala.responderAprovacao(m.id, m.decisao);
             break;
           case 'agenteHabilitar':
             await sala.atualizarAgente(m.id, { habilitado: m.habilitado });
@@ -506,19 +577,7 @@ export async function activate(
             );
             break;
           case 'exportarConversa': {
-            const uri = await vscode.window.showSaveDialog({
-              defaultUri: projeto
-                ? vscode.Uri.file(join(projeto, 'orquestra-conversa.md'))
-                : undefined,
-              filters: { Markdown: ['md'] },
-            });
-            if (!uri) break;
-            const real = await caminhoReal(uri.fsPath, true);
-            await writeFile(
-              real,
-              sala.mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n'),
-              'utf8',
-            );
+            await exportarChat(sala.chat.id);
             break;
           }
         }

@@ -1,5 +1,19 @@
 export const ferramentas = [
   {
+    name: 'memoria_propor',
+    description:
+      'Propor fato duravel ou preferencia. So guarda apos aprovacao individual do usuario; nunca envie segredos.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        texto: { type: 'string', maxLength: 500 },
+        escopo: { type: 'string', enum: ['global', 'projeto'] },
+      },
+      required: ['texto', 'escopo'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'aprovar',
     description:
       'Portao de permissao. Ferramentas nativas sao recusadas; use as ferramentas do Orquestrador Fagulha.',
@@ -98,7 +112,7 @@ export function validarArgumentos(nome: string, entrada: unknown): Record<string
     throw new Error('Ferramenta ou argumentos invalidos.');
   const args = entrada as Record<string, unknown>;
   const schema = ferramenta.inputSchema as {
-    properties: Record<string, { type: string; maxLength?: number }>;
+    properties: Record<string, { type: string; maxLength?: number; enum?: readonly string[] }>;
     required?: readonly string[];
   };
   for (const chave of Object.keys(args))
@@ -109,7 +123,8 @@ export function validarArgumentos(nome: string, entrada: unknown): Record<string
     const p = schema.properties[chave];
     if (
       typeof valor !== p.type ||
-      (typeof valor === 'string' && valor.length > (p.maxLength ?? 10000))
+      (typeof valor === 'string' && valor.length > (p.maxLength ?? 10000)) ||
+      (p.enum && !p.enum.includes(String(valor)))
     )
       throw new Error(`Argumento invalido: ${chave}`);
   }

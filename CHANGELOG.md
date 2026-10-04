@@ -1,5 +1,15 @@
 # Histórico de versões
 
+## 0.2.1 — em desenvolvimento
+
+- **Menu Chats:** todas as suas conversas, de qualquer projeto e janela, com busca, fixar, renomear,
+  exportar e excluir.
+- **Novo chat:** comece uma conversa limpa sem perder a anterior.
+- **Conversa preservada:** ao fechar e abrir o VS Code ou abrir uma nova janela, o último chat da pasta
+  volta automaticamente.
+- **Memória persistente:** preferências e decisões que os agentes recebem em todos os chats, global ou por
+  projeto. Agentes podem propor memórias, que só são salvas com a sua aprovação.
+
 ## 0.2.0 — em desenvolvimento
 
 - **Chat por voz:** fale com a sala pelo microfone; a transcrição é feita no seu computador

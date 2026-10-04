@@ -339,3 +339,42 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 .caixa { display: flex; align-items: center; gap: 4px; font-size: .92em; cursor: pointer; }
 .pilha { display: flex; flex-direction: column; gap: 8px; }
 .secao-voz input[type="range"] { flex: 1; accent-color: var(--primario); }
+
+/* ---------- chats e memoria (v4) ---------- */
+.abas { display: flex; gap: 2px; border-bottom: 1px solid var(--borda); }
+.aba {
+  padding: 4px 12px; border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--suave); font: inherit; cursor: pointer;
+}
+.aba.sel { color: var(--texto); border-bottom-color: var(--foco); }
+.campo.busca { flex: 1; min-width: 0; }
+.grupo-chats h3 { margin: 4px 0; font-size: .85em; text-transform: uppercase; letter-spacing: .04em; color: var(--suave); }
+.lista-chats, .lista-memorias { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.chat-item { display: flex; align-items: flex-start; gap: 4px; padding: 2px; border-radius: var(--raio); }
+.chat-item:hover, .chat-item:focus-within { background: var(--hover); }
+.chat-item.atual { box-shadow: inset 2px 0 0 var(--foco); }
+.chat-item.editando, .chat-item.confirmar { flex-direction: column; align-items: stretch; padding: 6px 8px; border: 1px solid var(--borda); }
+.chat-item.confirmar { border-color: var(--erro); }
+.chat-item.confirmar p { margin: 0 0 4px; }
+.chat-abrir {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 4px 6px;
+  border: 0; background: none; color: var(--texto); font: inherit; text-align: left; cursor: pointer;
+}
+.chat-titulo { display: flex; align-items: center; gap: 5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-titulo .ic { width: 12px; height: 12px; color: var(--suave); }
+.chat-meta { color: var(--suave); font-size: .85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-trecho { color: var(--suave); font-size: .85em; font-style: italic; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chat-acoes { display: inline-flex; flex: none; gap: 0; opacity: 0; padding-top: 3px; }
+.chat-item:hover .chat-acoes, .chat-item:focus-within .chat-acoes, .memoria:hover .chat-acoes, .memoria:focus-within .chat-acoes { opacity: 1; }
+.chat-acoes .bi { width: 22px; height: 22px; }
+.chat-acoes .ic { width: 14px; height: 14px; }
+.memoria { display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px; border-radius: var(--raio); }
+.memoria:hover { background: var(--hover); }
+.memoria.off .memoria-corpo p { color: var(--suave); text-decoration: line-through; }
+.memoria.editando { flex-direction: column; align-items: stretch; border: 1px solid var(--borda); }
+.memoria .interruptor { margin: 2px 0 0; }
+.memoria-corpo { flex: 1; min-width: 0; }
+.memoria-corpo p { margin: 0 0 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nova-memoria { display: flex; flex-direction: column; gap: 6px; }
+.aviso-chat { padding: 5px 8px; border: 1px dashed var(--borda); border-radius: var(--raio); color: var(--suave); font-size: .9em; }
+@media (hover: none) { .chat-acoes { opacity: 1; } }

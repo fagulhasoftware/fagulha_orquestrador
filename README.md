@@ -25,6 +25,10 @@ Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da F
 - **Chat por voz**: fale com a sala pelo microfone e ouça as respostas dos agentes. A transcrição
   (whisper.cpp) e a leitura (voz do sistema) acontecem no seu computador; a gravação é apagada após a
   transcrição. Os componentes de voz são baixados só com a sua autorização.
+- **Chats e memória persistente**: todas as conversas ficam no menu **Chats** (com busca) e voltam ao
+  reabrir o VS Code; **Novo chat** começa do zero sem perder nada. A **memória** guarda preferências e
+  decisões que os agentes recebem em todos os chats; agentes podem propor memórias, salvas só com a sua
+  aprovação.
 - **Contexto de outros chats**: importe conversas anteriores do Claude Code, do Codex ou de outras salas.
 - **Extensível**: novos agentes por manifesto ou por outras extensões (`FagulhaSoftware.orquestrador-fagulha`).
 

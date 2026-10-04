@@ -6,6 +6,10 @@ import type {
   EstadoSala,
   Mensagem,
   ModoAgente,
+  Memoria,
+  ResumoChat,
+  PedidoAprovacao,
+  DecisaoAprovacao,
 } from '../shared/protocolo';
 import { VERSAO_PROTOCOLO, CONFIRMACAO_NIVEL_TOTAL } from '../shared/protocolo';
 import type { Provedor, PedidoExecucao } from '../providers/tipos';
@@ -17,6 +21,9 @@ import type { AnexoArmazenado } from '../attachments/pipeline';
 import type { ContextoCompleto } from '../context-import/importador';
 import { Portao } from '../permissions/portao';
 import { estadoInicialVoz } from '../voice/configuracao';
+import { Chats } from './chats';
+import { Memorias, contextoMemorias, memoriasDoProjeto } from './memoria';
+import { resumoChat, mesmoProjeto, type ChatPersistido } from '../storage/chats';
 export function chaveSala(raizes: string[]): string {
   const normalizadas = raizes
     .map((p) => (process.platform === 'win32' ? p.toLowerCase() : p))
@@ -53,11 +60,13 @@ interface Sessao {
   visto: number;
   modo: ModoAgente;
   nivel: Configuracao['nivel'];
+  projeto?: string | null;
 }
 interface Persistida {
   configuracao: Configuracao;
   primeiraExecucao: boolean;
   anexosPendentes?: string[];
+  ultimo_chat?: string;
 }
 export class Sala {
   readonly provedores = new Map<string, Provedor>();
@@ -65,6 +74,14 @@ export class Sala {
   readonly anexos = new Map<string, AnexoArmazenado>();
   readonly contextos = new Map<string, ContextoCompleto>();
   readonly anexosPendentes = new Set<string>();
+  readonly chats: Chats;
+  readonly memorias: Memorias;
+  chat!: ChatPersistido;
+  private memoriasLista: Memoria[] = [];
+  private trocando = false;
+  private trocas: Promise<unknown> = Promise.resolve();
+  private aprovacoesOutras: PedidoAprovacao[] = [];
+  private consultasAprovacao = new Map<string, NodeJS.Timeout>();
   config = configuracaoPadrao();
   primeiraExecucao = true;
   voz: EstadoSala['voz'] = estadoInicialVoz();
@@ -85,6 +102,8 @@ export class Sala {
     readonly titulo: string,
     readonly storage: Armazenamento,
   ) {
+    this.chats = new Chats(storage, id, projeto);
+    this.memorias = new Memorias(storage, projeto);
     this.portao = new Portao(
       () => this.config,
       (e) => this.emitir(e),
@@ -125,18 +144,55 @@ export class Sala {
       const indice = this.mensagens.findIndex((x) => x.id === m.id);
       if (indice < 0) this.mensagens.push(m);
       else this.mensagens[indice] = m;
-      this.persistir(this.storage.gravar('mensagens', this.id, m.id, m));
-      if (m.tipo === 'acao') this.persistir(this.storage.gravar('acoes', this.id, m.id, m));
-    }
-    if (evento.tipo === 'aprovacao')
-      this.persistir(this.storage.gravar('aprovacoes', this.id, evento.pedido.id, evento.pedido));
-    if (evento.tipo === 'aprovacaoResolvida')
+      const chatId = this.chat.id;
       this.persistir(
-        this.storage.gravar('aprovacoes', this.id, evento.id, {
+        this.storage
+          .gravarMensagem(chatId, m, m.tipo === 'fala' && m.autor === this.config.nick)
+          .then((chat) => {
+            if (this.chat.id !== chatId) return;
+            const tituloMudou = this.chat.titulo !== chat.titulo;
+            this.chat = chat;
+            this.emitir({ tipo: 'chat', chat: resumoChat(chat, this.projeto) });
+            if (tituloMudou) this.persistir(this.listarChats());
+          }),
+      );
+    }
+    if (evento.tipo === 'aprovacao') {
+      this.persistir(
+        this.storage.gravarDoChat('aprovacoes', this.chat.id, evento.pedido.id, {
+          ...evento.pedido,
+          donoPid: process.pid,
+        }),
+      );
+      const chat = this.chat.id;
+      let consultando = false;
+      const timer = setInterval(() => {
+        if (consultando) return;
+        consultando = true;
+        void this.storage
+          .obter<{ decisao?: DecisaoAprovacao | 'expirada' }>('aprovacoes', chat, evento.pedido.id)
+          .then((p) => {
+            if (!p || p.decisao === 'expirada') this.portao.responder(evento.pedido.id, 'negar');
+            else if (p?.decisao) this.portao.responder(evento.pedido.id, p.decisao);
+          })
+          .catch(() => {})
+          .finally(() => {
+            consultando = false;
+          });
+      }, 250);
+      timer.unref();
+      this.consultasAprovacao.set(evento.pedido.id, timer);
+    }
+    if (evento.tipo === 'aprovacaoResolvida') {
+      clearInterval(this.consultasAprovacao.get(evento.id));
+      this.consultasAprovacao.delete(evento.id);
+      this.persistir(
+        this.storage.gravarDoChat('aprovacoes', this.chat.id, evento.id, {
           id: evento.id,
           decisao: evento.decisao,
         }),
       );
+    }
     for (const fn of this.ouvintes)
       try {
         fn(evento);
@@ -169,13 +225,6 @@ export class Sala {
       if (this.config.nivel === 'total' && !this.config.nivelConfirmadoEm)
         this.config.nivel = 'manual';
     }
-    this.mensagens.push(...(await this.storage.listar<Mensagem>('mensagens', this.id)));
-    for (const a of await this.storage.listar<AnexoArmazenado>('anexos', this.id))
-      this.anexos.set(a.meta.id, a);
-    for (const id of sala?.anexosPendentes ?? [])
-      if (this.anexos.has(id)) this.anexosPendentes.add(id);
-    for (const c of await this.storage.listar<ContextoCompleto>('contextos', this.id))
-      this.contextos.set(c.meta.id, c);
     for (const p of this.provedores.values()) {
       const salvo = await this.storage.obter<Agente>('provedores', this.id, p.agente.id);
       if (salvo)
@@ -184,9 +233,6 @@ export class Sala {
           papel: salvo.papel,
           modo: salvo.modo,
         });
-      const sessao = await this.storage.obter<Sessao>('sessoes_provedor', this.id, p.agente.id);
-      if (sessao && sessao.modo === p.agente.modo && sessao.nivel === this.config.nivel)
-        this.sessoes.set(p.agente.id, sessao);
       const detectado = await p.detectar();
       Object.assign(p.agente, {
         instalado: detectado.instalado,
@@ -197,17 +243,193 @@ export class Sala {
       if (!salvo && p.agente.tipo === 'cli') p.agente.habilitado = detectado.instalado;
       p.agente.estado = p.agente.habilitado ? 'livre' : 'desabilitado';
     }
+    this.chat = await this.chats.inicial(this.config.nick);
+    await this.carregarChat();
+    await this.atualizarMemorias(false);
+    await this.salvar();
+  }
+  private async carregarChat(): Promise<void> {
+    this.chat = await this.chats.obter(this.chat.id);
+    this.mensagens.length = 0;
+    for (const mensagem of await this.storage.listar<Mensagem>('mensagens', this.chat.id))
+      this.mensagens.push(mensagem);
+    this.anexos.clear();
+    this.contextos.clear();
+    this.anexosPendentes.clear();
+    this.sessoes.clear();
+    for (const a of await this.storage.listar<AnexoArmazenado>('anexos', this.chat.id))
+      this.anexos.set(a.meta.id, a);
+    for (const id of this.chat.anexosPendentes)
+      if (this.anexos.has(id)) this.anexosPendentes.add(id);
+    for (const c of await this.storage.listar<ContextoCompleto>('contextos', this.chat.id))
+      this.contextos.set(c.meta.id, c);
+    for (const p of this.provedores.values()) {
+      const sessao = await this.storage.obter<Sessao>(
+        'sessoes_provedor',
+        this.chat.id,
+        `${p.agente.id}:${p.agente.modo}`,
+      );
+      if (
+        sessao &&
+        sessao.modo === p.agente.modo &&
+        sessao.nivel === this.config.nivel &&
+        mesmoProjeto(
+          sessao.projeto === undefined ? this.chat.projeto : sessao.projeto,
+          this.projeto,
+        )
+      )
+        this.sessoes.set(p.agente.id, sessao);
+      p.agente.temSessao = this.sessoes.has(p.agente.id);
+    }
+    // Um pedido de um processo encerrado nao pode executar um efeito ao reabrir a janela.
+    this.aprovacoesOutras = [];
+    for (const pedido of await this.storage.listar<
+      PedidoAprovacao & { decisao?: string; donoPid?: number }
+    >('aprovacoes', this.chat.id)) {
+      if (pedido.decisao || this.portao.pendentes.has(pedido.id)) continue;
+      let vivo = false;
+      if (pedido.donoPid) {
+        try {
+          process.kill(pedido.donoPid, 0);
+          vivo = true;
+        } catch (e) {
+          vivo = (e as NodeJS.ErrnoException).code === 'EPERM';
+        }
+      }
+      if (!vivo || !pedido.expiraEm || Date.parse(pedido.expiraEm) <= Date.now())
+        await this.storage.resolverAprovacao(this.chat.id, pedido.id, 'expirada');
+      else {
+        const { decisao, donoPid, ...publico } = pedido;
+        this.aprovacoesOutras.push(publico);
+      }
+    }
+  }
+  async responderAprovacao(id: string, decisao: DecisaoAprovacao): Promise<void> {
+    if (this.portao.pendentes.has(id)) {
+      this.portao.responder(id, decisao);
+      return;
+    }
+    if (!this.aprovacoesOutras.some((p) => p.id === id))
+      throw new Error('Aprovacao nao encontrada neste chat.');
+    const resolvida = await this.storage.resolverAprovacao(this.chat.id, id, decisao);
+    this.aprovacoesOutras = this.aprovacoesOutras.filter((p) => p.id !== id);
+    if (resolvida)
+      for (const fn of this.ouvintes) {
+        try {
+          fn({ tipo: 'aprovacaoResolvida', id, decisao });
+        } catch {
+          /* webview descartado */
+        }
+      }
+  }
+  async sincronizar(): Promise<void> {
+    await Promise.all(this.persistencias);
+    if (this.atual || this.trocando) return;
+    try {
+      await this.carregarChat();
+    } catch {
+      this.chat = await this.chats.inicial(this.config.nick);
+      await this.carregarChat();
+      await this.salvar();
+    }
+    await this.atualizarMemorias(false);
+  }
+  private trocar(fn: () => Promise<ChatPersistido>): Promise<void> {
+    const tarefa = this.trocas.then(async () => {
+      this.trocando = true;
+      try {
+        this.parar();
+        await this.esperar();
+        this.chat = await fn();
+        await this.carregarChat();
+        await this.atualizarMemorias(false);
+        await this.salvar();
+        this.estadoCompleto();
+        this.emitir({ tipo: 'chat', chat: resumoChat(this.chat, this.projeto) });
+        await this.listarChats();
+      } finally {
+        this.trocando = false;
+      }
+    });
+    this.trocas = tarefa.catch(() => {});
+    return tarefa;
+  }
+  novoChat(): Promise<void> {
+    return this.trocar(() => this.chats.criar(this.config.nick));
+  }
+  abrirChat(id: string): Promise<void> {
+    return this.trocar(() => this.chats.obter(id));
+  }
+  async listarChats(busca?: string): Promise<ResumoChat[]> {
+    const lista = await this.chats.listar(busca);
+    this.emitir({ tipo: 'chats', lista, ...(busca !== undefined ? { busca } : {}) });
+    return lista;
+  }
+  async renomearChat(id: string, titulo: string): Promise<void> {
+    const chat = await this.chats.renomear(id, titulo);
+    if (id === this.chat.id) {
+      this.chat = chat;
+      this.emitir({ tipo: 'chat', chat: resumoChat(chat, this.projeto) });
+    }
+    await this.listarChats();
+  }
+  async fixarChat(id: string, fixado: boolean): Promise<void> {
+    const chat = await this.chats.fixar(id, fixado);
+    if (id === this.chat.id) {
+      this.chat = chat;
+      this.emitir({ tipo: 'chat', chat: resumoChat(chat, this.projeto) });
+    }
+    await this.listarChats();
+  }
+  async excluirChat(id: string): Promise<string[]> {
+    let arquivos: string[] = [];
+    if (id === this.chat.id)
+      await this.trocar(async () => {
+        arquivos = await this.storage.excluirChat(id);
+        return this.chats.inicial(this.config.nick);
+      });
+    else {
+      arquivos = await this.storage.excluirChat(id);
+      await this.listarChats();
+    }
+    return arquivos;
+  }
+  async mensagensChat(id: string): Promise<Mensagem[]> {
+    await Promise.all(this.persistencias);
+    await this.chats.obter(id);
+    return this.storage.listar('mensagens', id);
+  }
+  async atualizarMemorias(emitir = true): Promise<void> {
+    this.memoriasLista = await this.memorias.listar();
+    if (emitir) {
+      this.emitir({ tipo: 'memorias', lista: this.memoriasLista });
+      this.estadoCompleto();
+    }
+  }
+  async salvarMemoria(
+    entrada: { id?: string; escopo: Memoria['escopo']; texto: string; ativa?: boolean },
+    agente?: string,
+  ): Promise<Memoria> {
+    const memoria = await this.memorias.salvar(entrada, agente);
+    await this.atualizarMemorias();
+    return memoria;
+  }
+  async excluirMemoria(id: string): Promise<void> {
+    await this.memorias.excluir(id);
+    await this.atualizarMemorias();
   }
   estado(): EstadoSala {
     return {
       versaoProtocolo: VERSAO_PROTOCOLO,
       sala: { id: this.id, projeto: this.projeto, titulo: this.titulo },
+      chat: resumoChat(this.chat, this.projeto),
+      memoriasAtivas: memoriasDoProjeto(this.memoriasLista, this.projeto).length,
       configuracao: this.config,
       agentes: this.agentes,
       mensagens: this.mensagens.slice(-200),
       anexosPendentes: [...this.anexosPendentes].map((id) => this.anexos.get(id)!.meta),
       contextos: [...this.contextos.values()].map((c) => c.meta),
-      aprovacoes: [...this.portao.pendentes.values()],
+      aprovacoes: [...this.portao.pendentes.values(), ...this.aprovacoesOutras],
       primeiraExecucao: this.primeiraExecucao,
       voz: this.voz,
     };
@@ -239,6 +461,7 @@ export class Sala {
     return mensagem;
   }
   enviar(texto: string, anexos: string[]): void {
+    if (this.trocando) throw new Error('Aguarde a troca de chat terminar.');
     if (texto.trim() === '/parar') {
       this.parar();
       return;
@@ -256,10 +479,11 @@ export class Sala {
       this.anexosPendentes.delete(id);
       this.emitir({ tipo: 'anexoRemovido', id });
     }
-    this.persistir(this.salvar());
+    this.persistir(this.storage.pendentesChat(this.chat.id, [], anexos));
     for (const id of mencoes(texto, this.agentes)) this.acionar(id, 0);
   }
   acionar(id: string, saltos = 0): void {
+    if (this.trocando) return;
     const a = this.provedores.get(id)?.agente;
     if (!a?.habilitado || !a.instalado || this.fila.some((f) => f.id === id)) return;
     this.fila.push({ id, saltos });
@@ -299,6 +523,10 @@ export class Sala {
       let visto = this.mensagens.length;
       let preparada: Awaited<ReturnType<NonNullable<Sala['preparar']>>> | undefined;
       try {
+        await Promise.all(this.persistencias);
+        await this.carregarChat();
+        sessao = this.sessoes.get(a.id);
+        await this.atualizarMemorias(false);
         preparada = await this.preparar?.(a, controle.signal);
         const enviados = new Set(this.mensagens.flatMap((m) => (m.anexos ?? []).map((a) => a.id)));
         const anexos = [...this.anexos.values()].filter(
@@ -317,6 +545,7 @@ export class Sala {
             .slice(-20)
             .map((x) => `${x.meta.nome}: ${x.meta.aviso ?? ''}\n${x.texto.slice(0, 12000)}`),
           contextos: [...this.contextos.values()].map((c) => `${c.meta.titulo}:\n${c.texto}`),
+          memoria: contextoMemorias(this.memoriasLista, this.projeto),
         });
         visto = this.mensagens.length;
         const pedido: PedidoExecucao = {
@@ -333,7 +562,13 @@ export class Sala {
           {
             sessao: (id) => {
               if (controle.signal.aborted) return;
-              sessao = { id, visto: sessao?.visto ?? 0, modo: a.modo, nivel: this.config.nivel };
+              sessao = {
+                id,
+                visto: sessao?.visto ?? 0,
+                modo: a.modo,
+                nivel: this.config.nivel,
+                projeto: this.projeto,
+              };
               this.sessoes.set(a.id, sessao);
               a.temSessao = true;
               this.emitir({ tipo: 'agente', agente: a });
@@ -392,7 +627,14 @@ export class Sala {
         }
         if (sessao && this.sessoes.has(a.id)) {
           sessao.visto = visto;
-          this.persistir(this.storage.gravar('sessoes_provedor', this.id, a.id, sessao));
+          this.persistir(
+            this.storage.gravarDoChat(
+              'sessoes_provedor',
+              this.chat.id,
+              `${a.id}:${a.modo}`,
+              sessao,
+            ),
+          );
         }
         a.estado = a.habilitado
           ? falhou && !controle.signal.aborted
@@ -454,7 +696,8 @@ export class Sala {
       a.temSessao = false;
       this.emitir({ tipo: 'agente', agente: a });
     }
-    await this.storage.remover('sessoes_provedor', this.id, id);
+    if (this.chat && a)
+      await this.storage.remover('sessoes_provedor', this.chat.id, `${id}:${a.modo}`);
   }
   async atualizarAgente(
     id: string,
@@ -498,29 +741,30 @@ export class Sala {
     await this.storage.gravar('salas', this.id, this.id, {
       configuracao: this.config,
       primeiraExecucao: this.primeiraExecucao,
-      anexosPendentes: [...this.anexosPendentes],
+      projeto: this.projeto,
+      ...(this.chat ? { ultimo_chat: this.chat.id } : {}),
     });
   }
   async adicionarAnexo(a: AnexoArmazenado): Promise<void> {
     this.anexos.set(a.meta.id, a);
     this.anexosPendentes.add(a.meta.id);
-    await this.storage.gravar('anexos', this.id, a.meta.id, a);
-    await this.salvar();
+    await this.storage.gravarDoChat('anexos', this.chat.id, a.meta.id, a);
+    await this.storage.pendentesChat(this.chat.id, [a.meta.id], []);
     this.emitir({ tipo: 'anexo', anexo: a.meta });
   }
   removerAnexo(id: string): void {
     this.anexosPendentes.delete(id);
-    this.persistir(this.salvar());
+    this.persistir(this.storage.pendentesChat(this.chat.id, [], [id]));
     this.emitir({ tipo: 'anexoRemovido', id });
   }
   async adicionarContexto(c: ContextoCompleto): Promise<void> {
     this.contextos.set(c.meta.id, c);
-    await this.storage.gravar('contextos', this.id, c.meta.id, c);
+    await this.storage.gravarDoChat('contextos', this.chat.id, c.meta.id, c);
     this.emitir({ tipo: 'contexto', contexto: c.meta });
   }
   async removerContexto(id: string): Promise<void> {
     this.contextos.delete(id);
-    await this.storage.remover('contextos', this.id, id);
+    await this.storage.remover('contextos', this.chat.id, id);
     this.emitir({ tipo: 'contextoRemovido', id });
   }
 }

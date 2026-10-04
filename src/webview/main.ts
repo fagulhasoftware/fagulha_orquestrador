@@ -3,7 +3,7 @@
 // Fala com o host somente pelos tipos de src/shared/protocolo.ts.
 import {
   CONFIRMACAO_NIVEL_TOTAL, VERSAO_PROTOCOLO,
-  type Agente, type ComponenteVoz, type DoHost, type EstadoVoz, type ItemInstalacaoVoz, type ModeloVoz, type OpcaoLogin, type ProgressoInstalacaoVoz, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao,
+  type Agente, type ComponenteVoz, type DoHost, type EstadoVoz, type ItemInstalacaoVoz, type Memoria, type ModeloVoz, type OpcaoLogin, type ProgressoInstalacaoVoz, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao, type ResumoChat,
 } from '../shared/protocolo';
 import { renderMarkdown } from './markdown';
 import { botaoIcone, bytes, enviar, h, hora, icone, local, ouvir, salvarLocal, type Vista } from './util';
@@ -45,7 +45,7 @@ const MODOS: Record<ModoAgente, string> = { leitura_escrita: 'Leitura e escrita'
 const CATEGORIAS: Record<string, string> = {
   leitura_workspace: 'Ler no projeto', escrita_workspace: 'Escrever no projeto', leitura_maquina: 'Ler fora do projeto',
   escrita_maquina: 'Escrever fora do projeto', comando: 'Executar comando', rede_leitura: 'Acessar a web', navegador: 'Navegador externo',
-  externo: 'Sistema externo', publicacao: 'Publicar ou enviar', credencial: 'Usar credencial', destrutiva: 'Acao destrutiva',
+  externo: 'Sistema externo', publicacao: 'Publicar ou enviar', credencial: 'Usar credencial', destrutiva: 'Acao destrutiva', memoria: 'Guardar na memoria',
 };
 const LOGIN: Record<string, string> = { conectado: 'conectado', chave_configurada: 'chave configurada', desconectado: 'desconectado', desconhecido: 'login desconhecido' };
 
@@ -65,12 +65,14 @@ function renderCabecalho(): void {
   cabecalho.replaceChildren(
     h('div', { class: 'titulo' },
       h('span', { class: 'canal', title: 'Orquestrador Fagulha' }, '#fagulha_orquestrador'),
-      h('span', { class: 'projeto', title: E.sala.projeto ?? 'sem pasta aberta' }, E.sala.titulo)),
+      h('span', { class: 'projeto', title: `${E.chat.titulo}\n${E.chat.projeto ?? 'Sem projeto'}` }, E.chat.titulo)),
     h('div', { class: 'acoes' },
       trabalhando ? botaoIcone('parar', 'Parar o agente atual', () => enviar({ tipo: 'parar' }), 'perigo') : null,
       h('span', { class: `nivel n-${E.configuracao.nivel}`, title: `Nivel de permissao: ${NIVEIS[E.configuracao.nivel].titulo}` },
         icone('escudo'), NIVEIS[E.configuracao.nivel].titulo),
       btnLeitura,
+      botaoIcone('mais', 'Novo chat', () => { enviar({ tipo: 'novoChat' }); irPara('chat'); }),
+      botaoIcone('chats', 'Chats e memoria', () => (vista === 'chats' ? irPara('chat') : abrirChats()), vista === 'chats' ? 'ativo' : ''),
       botaoIcone('pessoas', 'Agentes', () => irPara(vista === 'agentes' ? 'chat' : 'agentes'), vista === 'agentes' ? 'ativo' : ''),
       botaoIcone('engrenagem', 'Configuracoes', () => irPara(vista === 'config' ? 'chat' : 'config'), vista === 'config' ? 'ativo' : '')),
   );
@@ -175,6 +177,10 @@ function renderMensagens(): void {
     }
     filhos.push(elMensagem(ms[i]));
   }
+  if (!E.chat.desteProjeto) {
+    filhos.unshift(h('div', { class: 'aviso-chat', role: 'note' },
+      `Este chat foi criado em ${E.chat.projetoNome ?? 'uma janela sem projeto'}. Os agentes trabalham na pasta desta janela (${E.sala.titulo}).`));
+  }
   if (!ms.length) filhos.push(boasVindas());
   lista.replaceChildren(...filhos);
   if (perto) lista.scrollTop = lista.scrollHeight;
@@ -183,9 +189,10 @@ function renderMensagens(): void {
 function boasVindas(): HTMLElement {
   const nomes = E?.agentes.filter((a) => a.habilitado && a.instalado).map((a) => `@${a.nick.toLowerCase()}`) ?? [];
   return h('div', { class: 'boas-vindas' },
-    h('h2', {}, 'Sala vazia'),
+    h('h2', {}, 'Novo chat'),
     h('p', {}, nomes.length ? `Mencione ${nomes.join(', ')} ou @todos para acionar. Sem mencao, a mensagem fica so registrada.` : 'Habilite um agente para comecar.'),
-    h('p', { class: 'nota' }, 'Tudo o que acontece aqui fica gravado somente neste computador.'));
+    E?.memoriasAtivas ? h('p', { class: 'nota' }, `${E.memoriasAtivas} ${E.memoriasAtivas === 1 ? 'memoria sera enviada' : 'memorias serao enviadas'} aos agentes.`) : null,
+    h('p', { class: 'nota' }, 'Conversas anteriores ficam no menu Chats. Tudo fica gravado somente neste computador.'));
 }
 
 let agendado = false;
@@ -233,6 +240,7 @@ function enviarMensagem(): void {
   const t = texto.value.trim();
   const anexos = (E?.anexosPendentes ?? []).filter((a) => a.tratamento !== 'recusado').map((a) => a.id);
   if (!t && !anexos.length) return;
+  if (!anexos.length && comandoMemoria(t)) { texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes(); return; }
   enviar({ tipo: 'enviar', texto: t, anexos });
   texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes();
 }
@@ -472,6 +480,174 @@ function secaoVoz(): HTMLElement {
           selecao('Voz', v.leitura.voz, v.leitura.vozes.map((x) => [x.id, x.nome] as [string, string]), (id) => enviar({ tipo: 'leituraConfigurar', voz: id }), !v.leitura.vozes.length),
           h('label', { class: 'rotulo' }, 'Velocidade', h('span', { class: 'linha' }, velocidade, rotuloVel))),
         h('p', { class: 'nota' }, 'A leitura usa a voz instalada no seu sistema operacional. Blocos de codigo nao sao lidos.')));
+}
+
+// ---------- chats e memoria persistente (v4) ----------
+let listaChats: ResumoChat[] = [];
+let buscaAtual = '';
+let memorias: Memoria[] = [];
+let abaChats: 'conversas' | 'memoria' = 'conversas';
+let renomeando: string | null = null;
+let excluindo: string | null = null;
+let editandoMemoria: string | null = null;
+let temporizadorBusca: number | undefined;
+const campoBusca = h('input', { class: 'campo busca', type: 'search', placeholder: 'Buscar em titulos e mensagens', 'aria-label': 'Buscar chats' });
+campoBusca.addEventListener('input', () => {
+  clearTimeout(temporizadorBusca);
+  temporizadorBusca = window.setTimeout(() => enviar({ tipo: 'listarChats', busca: campoBusca.value.trim() || undefined }), 250);
+});
+const novaMemoria = h('textarea', { class: 'campo', rows: 2, maxlength: 500, placeholder: 'Ex.: Use pnpm neste projeto. Respostas sempre em portugues formal.', 'aria-label': 'Nova memoria' });
+
+function quandoRelativo(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const hoje = new Date();
+  const dias = Math.floor((new Date(hoje.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86400000);
+  const hm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (dias === 0) return `hoje, ${hm}`;
+  if (dias === 1) return `ontem, ${hm}`;
+  if (dias < 7) return d.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: dias > 300 ? '2-digit' : undefined });
+}
+
+function abrirChats(aba: typeof abaChats = 'conversas'): void {
+  abaChats = aba;
+  if (aba === 'conversas') enviar({ tipo: 'listarChats', busca: buscaAtual || undefined });
+  else enviar({ tipo: 'listarMemorias' });
+  irPara('chats');
+}
+
+function itemChat(c: ResumoChat): HTMLElement {
+  const atual = E?.chat.id === c.id;
+  if (renomeando === c.id) {
+    const inp = h('input', { class: 'campo', type: 'text', value: c.titulo, maxlength: 120, 'aria-label': 'Novo titulo' });
+    const salvar = () => { const t = inp.value.trim(); if (t && t !== c.titulo) enviar({ tipo: 'renomearChat', id: c.id, titulo: t }); renomeando = null; renderTudo(); };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') salvar(); if (e.key === 'Escape') { renomeando = null; renderTudo(); } });
+    requestAnimationFrame(() => { inp.focus(); inp.select(); });
+    return h('li', { class: 'chat-item editando' }, inp,
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: salvar }, 'Salvar'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { renomeando = null; renderTudo(); } }, 'Cancelar')));
+  }
+  if (excluindo === c.id) {
+    return h('li', { class: 'chat-item confirmar', role: 'alertdialog', 'aria-label': `Excluir ${c.titulo}` },
+      h('p', {}, `Excluir "${c.titulo}" definitivamente? As ${c.mensagens} mensagens, acoes e anexos deste chat serao apagados deste computador.`),
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno perigo', type: 'button', onclick: () => { enviar({ tipo: 'excluirChat', id: c.id }); excluindo = null; } }, 'Excluir'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { excluindo = null; renderTudo(); } }, 'Cancelar')));
+  }
+  const meta = [c.desteProjeto ? null : (c.projetoNome ?? 'Sem projeto'), quandoRelativo(c.atualizadoEm), `${c.mensagens} ${c.mensagens === 1 ? 'mensagem' : 'mensagens'}`, c.agentes.length ? c.agentes.join(', ') : null]
+    .filter(Boolean).join(' · ');
+  return h('li', { class: `chat-item ${atual ? 'atual' : ''}` },
+    h('button', {
+      class: 'chat-abrir', type: 'button', 'aria-current': atual ? 'true' : undefined,
+      onclick: () => { if (!atual) enviar({ tipo: 'abrirChat', id: c.id }); irPara('chat'); },
+    },
+      h('span', { class: 'chat-titulo' }, c.fixado ? icone('fixar') : null, c.titulo, atual ? h('span', { class: 'tag' }, 'aberto') : null),
+      h('span', { class: 'chat-meta' }, meta),
+      c.trecho ? h('span', { class: 'chat-trecho' }, c.trecho) : null),
+    h('span', { class: 'chat-acoes' },
+      botaoIcone('fixar', c.fixado ? 'Desafixar' : 'Fixar no topo', () => enviar({ tipo: 'fixarChat', id: c.id, fixado: !c.fixado }), c.fixado ? 'ativo' : ''),
+      botaoIcone('lapis', 'Renomear', () => { renomeando = c.id; renderTudo(); }),
+      botaoIcone('exportar', 'Exportar em Markdown', () => enviar({ tipo: 'exportarChat', id: c.id })),
+      botaoIcone('lixeira', 'Excluir', () => { excluindo = c.id; renderTudo(); })));
+}
+
+function grupoChats(titulo: string, itens: ResumoChat[]): HTMLElement | null {
+  if (!itens.length) return null;
+  return h('section', { class: 'grupo-chats' }, h('h3', {}, titulo), h('ul', { class: 'lista-chats' }, ...itens.map(itemChat)));
+}
+
+function abaConversas(): HTMLElement {
+  if (document.activeElement !== campoBusca && campoBusca.value !== buscaAtual) campoBusca.value = buscaAtual;
+  const ordenar = (a: ResumoChat, b: ResumoChat) => b.atualizadoEm.localeCompare(a.atualizadoEm);
+  const fixados = listaChats.filter((c) => c.fixado).sort(ordenar);
+  const resto = listaChats.filter((c) => !c.fixado).sort(ordenar);
+  const grupos = buscaAtual
+    ? [grupoChats(`Resultados para "${buscaAtual}"`, [...fixados, ...resto])]
+    : [
+      grupoChats('Fixados', fixados),
+      grupoChats('Este projeto', resto.filter((c) => c.desteProjeto)),
+      grupoChats('Outros projetos', resto.filter((c) => !c.desteProjeto && c.projeto)),
+      grupoChats('Sem projeto', resto.filter((c) => !c.desteProjeto && !c.projeto)),
+    ];
+  const vazio = !listaChats.length;
+  return h('div', { class: 'pilha' },
+    h('div', { class: 'linha' }, campoBusca,
+      h('button', { class: 'btn primario', type: 'button', onclick: () => { enviar({ tipo: 'novoChat' }); irPara('chat'); } }, icone('mais'), ' Novo chat')),
+    vazio ? h('p', { class: 'nota' }, buscaAtual ? 'Nenhum chat encontrado.' : 'Nenhum chat ainda.') : null,
+    ...grupos);
+}
+
+function itemMemoria(m: Memoria): HTMLElement {
+  if (editandoMemoria === m.id) {
+    const ta = h('textarea', { class: 'campo', rows: 3, maxlength: 500, 'aria-label': 'Editar memoria' });
+    ta.value = m.texto;
+    requestAnimationFrame(() => ta.focus());
+    return h('li', { class: 'memoria editando' }, ta,
+      h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno primario', type: 'button', onclick: () => { const t = ta.value.trim(); if (t) enviar({ tipo: 'salvarMemoria', id: m.id, escopo: m.escopo, texto: t, ativa: m.ativa }); editandoMemoria = null; } }, 'Salvar'),
+        h('button', { class: 'btn pequeno', type: 'button', onclick: () => { editandoMemoria = null; renderTudo(); } }, 'Cancelar')));
+  }
+  const chave = h('input', { type: 'checkbox', checked: m.ativa, 'aria-label': m.ativa ? 'Desativar memoria' : 'Ativar memoria' });
+  chave.addEventListener('change', () => enviar({ tipo: 'salvarMemoria', id: m.id, escopo: m.escopo, texto: m.texto, ativa: chave.checked }));
+  return h('li', { class: `memoria ${m.ativa ? '' : 'off'}` },
+    h('label', { class: 'interruptor', title: m.ativa ? 'Enviada aos agentes' : 'Guardada, mas nao enviada' }, chave, h('span', { class: 'trilho' })),
+    h('div', { class: 'memoria-corpo' },
+      h('p', {}, m.texto),
+      h('span', { class: 'nota' }, [m.origem === 'agente' ? `proposta por ${m.agente ?? 'agente'}` : 'adicionada por voce', quandoRelativo(m.atualizadaEm)].join(' · '))),
+    h('span', { class: 'chat-acoes' },
+      botaoIcone('lapis', 'Editar', () => { editandoMemoria = m.id; renderTudo(); }),
+      botaoIcone('lixeira', 'Excluir', () => enviar({ tipo: 'excluirMemoria', id: m.id }))));
+}
+
+function abaMemoria(): HTMLElement {
+  const projeto = E?.sala.projeto ?? null;
+  const escopo = h('select', { class: 'campo', 'aria-label': 'Escopo da memoria' },
+    projeto ? h('option', { value: 'projeto', selected: true }, `Deste projeto (${E?.sala.titulo})`) : null,
+    h('option', { value: 'global', selected: !projeto }, 'Global (todos os projetos)'));
+  const salvar = () => {
+    const t = novaMemoria.value.trim();
+    if (!t) return;
+    enviar({ tipo: 'salvarMemoria', escopo: escopo.value as Memoria['escopo'], texto: t });
+    novaMemoria.value = '';
+  };
+  const globais = memorias.filter((m) => m.escopo === 'global');
+  const deste = memorias.filter((m) => m.escopo === 'projeto' && m.projeto === projeto);
+  const outros = memorias.filter((m) => m.escopo === 'projeto' && m.projeto !== projeto);
+  const grupo = (t: string, itens: Memoria[], nota?: string) => itens.length
+    ? h('section', { class: 'grupo-chats' }, h('h3', {}, t), nota ? h('p', { class: 'nota' }, nota) : null, h('ul', { class: 'lista-memorias' }, ...itens.map(itemMemoria)))
+    : null;
+  return h('div', { class: 'pilha' },
+    h('p', { class: 'nota' }, 'Fatos que os agentes recebem em todos os chats: preferencias, decisoes e convencoes. Os agentes podem propor memorias, mas so voce aprova. Nao guarde senhas ou chaves aqui.'),
+    h('div', { class: 'nova-memoria' }, novaMemoria,
+      h('div', { class: 'linha' }, escopo, h('button', { class: 'btn primario', type: 'button', onclick: salvar }, 'Lembrar'))),
+    h('p', { class: 'nota' }, 'Atalho no chat: /lembrar texto (deste projeto) ou /lembrar-global texto.'),
+    grupo('Global', globais),
+    grupo(projeto ? 'Deste projeto' : 'Sem projeto', deste),
+    grupo('Outros projetos', outros, 'Nao sao enviadas nesta janela.'),
+    !memorias.length ? h('p', { class: 'nota' }, 'Nenhuma memoria ainda.') : null);
+}
+
+function vistaChats(): HTMLElement {
+  const aba = (id: typeof abaChats, rotulo: string) => h('button', {
+    class: `aba ${abaChats === id ? 'sel' : ''}`, type: 'button', role: 'tab', 'aria-selected': abaChats === id ? 'true' : 'false',
+    onclick: () => abrirChats(id),
+  }, rotulo);
+  return h('div', { class: 'pagina' },
+    h('div', { class: 'pagina-topo' }, botaoIcone('voltar', 'Voltar ao chat', () => irPara('chat')), h('h2', {}, 'Chats')),
+    h('div', { class: 'abas', role: 'tablist' }, aba('conversas', 'Conversas'), aba('memoria', `Memoria${E?.memoriasAtivas ? ` (${E.memoriasAtivas})` : ''}`)),
+    abaChats === 'conversas' ? abaConversas() : abaMemoria());
+}
+
+// Atalhos do composer: /lembrar e /lembrar-global.
+function comandoMemoria(t: string): boolean {
+  const m = t.match(/^\/lembrar(-global)?\s+([\s\S]+)$/i);
+  if (!m) return false;
+  const global = !!m[1] || !E?.sala.projeto;
+  enviar({ tipo: 'salvarMemoria', escopo: global ? 'global' : 'projeto', texto: m[2].trim().slice(0, 500) });
+  avisar(`Guardado na memoria ${global ? 'global' : 'deste projeto'}.`);
+  return true;
 }
 
 // ---------- vistas: agentes e configuracoes ----------
@@ -737,6 +913,7 @@ function renderTudo(): void {
   if (assistente) vistaExtra.replaceChildren(vistaAssistente());
   else if (vista === 'agentes') vistaExtra.replaceChildren(vistaAgentes());
   else if (vista === 'config') vistaExtra.replaceChildren(vistaConfig());
+  else if (vista === 'chats') vistaExtra.replaceChildren(vistaChats());
   else vistaExtra.replaceChildren();
   if (chat) renderMensagens();
   ajustarAltura();
@@ -787,6 +964,21 @@ ouvir((m: DoHost) => {
       if (m.erro) avisar(m.erro);
       renderVoz(); break;
     case 'aviso': avisar(m.texto); break;
+    case 'chats':
+      listaChats = m.lista; buscaAtual = m.busca ?? '';
+      if (vista === 'chats') renderTudo();
+      break;
+    case 'chat':
+      E.chat = m.chat;
+      listaChats = substituir(listaChats, m.chat);
+      renderCabecalho();
+      if (vista === 'chats') renderTudo();
+      break;
+    case 'memorias':
+      memorias = m.lista;
+      E.memoriasAtivas = m.lista.filter((x) => x.ativa && (x.escopo === 'global' || x.projeto === E!.sala.projeto)).length;
+      if (vista === 'chats') renderTudo();
+      break;
     case 'login': {
       const p = m.progresso;
       progressos.set(p.agente, p);

@@ -66,6 +66,30 @@ media/                    icones e CSS
   resultados de ferramentas MCP entram no historico e chegam aos demais agentes.
 - Sessoes dos CLIs sao retomadas por sala e agente; mudar o modo de permissao abre sessao nova.
 
+### 3.1 Chats e memoria persistente (versao 0.2.1)
+
+- **Chat** e a unidade de conversa persistente (tabela `chats`): id, titulo, projeto (pasta ou nulo),
+  criado/atualizado, fixado. Mensagens, acoes, anexos, aprovacoes, contextos e sessoes dos CLIs pertencem
+  ao chat. A sala continua sendo a janela/pasta; ela aponta para o chat ativo.
+- **Abertura:** a janela reabre o ultimo chat usado na sua pasta (`ultimo_chat` por sala); sem pasta, o
+  ultimo chat sem projeto; sem nenhum, cria um chat novo. Fechar e reabrir o VS Code restaura o chat e
+  as sessoes dos agentes.
+- **Novo chat:** cria um chat vazio na pasta da janela; as sessoes dos CLIs sao chaveadas por chat, entao
+  os agentes comecam do zero sem apagar o chat anterior.
+- **Menu Chats:** lista todos os chats (fixados, deste projeto, outros projetos, sem projeto); busca
+  local em titulos e no texto das mensagens (falas e do usuario, nunca segredos mascarados); renomear,
+  fixar, exportar em Markdown e excluir (apaga mensagens, acoes, anexos e sessoes do chat). Abrir um chat
+  de outro projeto mostra o historico; os agentes trabalham na pasta da janela atual.
+- **Titulo automatico:** primeira mensagem do usuario, sem mencoes, ate 60 caracteres; editavel.
+- **Memoria persistente** (tabela `memorias`): fatos curtos (ate 500 caracteres), escopo `global` ou
+  `projeto`, ativos ou desativados. As memorias ativas do escopo (global + projeto da janela) entram no
+  contexto de cada agente numa secao "Memoria do usuario", com teto de 4 000 caracteres (mais recentes
+  primeiro). Origem: usuario (menu ou `/lembrar`, `/lembrar-global`) ou agente pela ferramenta MCP
+  `memoria_propor`, que gera um pedido de aprovacao categoria `memoria` e so grava se o usuario aprovar.
+  Texto que pareca segredo (chaves, tokens, senhas) e recusado.
+- **Migracao:** cada sala existente vira um chat (titulo gerado da primeira mensagem ou "Conversa de
+  <data>"), preservando mensagens, acoes, anexos e sessoes.
+
 ## 4. Provedores (agentes)
 
 Interface (detalhe em `src/providers/tipos.ts`, definido pelo Codex a partir de `protocolo.ts`):

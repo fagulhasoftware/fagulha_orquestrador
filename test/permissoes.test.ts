@@ -4,8 +4,8 @@ import { categorias, decidir, matriz } from '../src/permissions/matriz';
 import { Portao } from '../src/permissions/portao';
 import { configuracaoPadrao } from '../src/core/configuracao';
 import type { DoHost, PedidoAprovacao, NivelPermissao } from '../src/shared/protocolo';
-// Expectativas independentes: 11 categorias na ordem normativa.
-const esperado = { manual: 'PPPPPPPPPPP', parcial: 'AAPPPPPPPPP', total: 'AAAAAAAAPPP' };
+// Expectativas independentes: 12 categorias na ordem normativa.
+const esperado = { manual: 'PPPPPPPPPPPP', parcial: 'AAPPPPPPPPPP', total: 'AAAAAAAAPPPP' };
 for (const nivel of ['manual', 'parcial', 'total'] as NivelPermissao[])
   for (const [indice, categoria] of categorias.entries())
     test(`${nivel} x ${categoria}`, () => {

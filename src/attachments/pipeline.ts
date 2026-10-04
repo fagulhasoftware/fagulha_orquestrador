@@ -1,9 +1,9 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { stat, mkdir, rename, unlink, writeFile, rm } from 'node:fs/promises';
+import { stat, mkdir, rename, unlink, writeFile, rm, lstat, realpath } from 'node:fs/promises';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Worker } from 'node:worker_threads';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Anexo, Configuracao } from '../shared/protocolo';
 import { classificar } from './limites';
@@ -21,6 +21,32 @@ export class Anexador {
     private worker: string,
     private limites: () => Configuracao['limites'],
   ) {}
+  async excluirSemReferencia(
+    arquivos: string[],
+    referenciado: (arquivo: string) => Promise<boolean>,
+  ): Promise<void> {
+    for (const arquivo of arquivos) {
+      // So remove objetos de conteudo da pasta gerenciada; nunca um caminho arbitrario do banco.
+      if (
+        !/^[a-f0-9]{64}$/.test(basename(arquivo)) ||
+        resolve(dirname(arquivo)) !== resolve(this.pasta)
+      )
+        continue;
+      if (await referenciado(arquivo)) continue;
+      try {
+        const info = await lstat(arquivo);
+        if (
+          !info.isFile() ||
+          info.isSymbolicLink() ||
+          resolve(dirname(await realpath(arquivo))) !== resolve(await realpath(this.pasta))
+        )
+          continue;
+        await unlink(arquivo);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      }
+    }
+  }
   async arquivo(caminho: string, nome = basename(caminho)): Promise<AnexoArmazenado> {
     const real = await caminhoReal(caminho);
     const info = await stat(real);
