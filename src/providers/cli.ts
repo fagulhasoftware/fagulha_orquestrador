@@ -1,4 +1,4 @@
-import { access, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
+import { access, readdir, stat, mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -96,6 +96,8 @@ export function montarArgumentos(
       `mcp_servers.fagulha_orquestrador.env={}`,
       '-c',
       `mcp_servers.fagulha_orquestrador.enabled=true`,
+      '-c',
+      'mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"',
       '-c',
       `mcp_servers.fagulha_orquestrador.env_vars=${JSON.stringify(['ORQUESTRA_BRIDGE_URL', 'ORQUESTRA_BRIDGE_TOKEN', 'ELECTRON_RUN_AS_NODE'])}`,
     );
@@ -390,188 +392,199 @@ export class ProvedorCli implements Provedor {
     if (!this.bin) throw new Error('CLI nao encontrado.');
     await mkdir(p.ponte.diretorio, { recursive: true });
     const config = join(p.ponte.diretorio, 'mcp.json');
-    const servidor = {
-      command: process.execPath,
-      args: [p.ponte.servidor],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    };
-    await writeFile(config, JSON.stringify({ mcpServers: { fagulha_orquestrador: servidor } }), {
-      mode: 0o600,
-    });
-    const env: NodeJS.ProcessEnv = {
-      ...(await this.ambiente()),
-      ORQUESTRA_BRIDGE_URL: p.ponte.url,
-      ORQUESTRA_BRIDGE_TOKEN: p.ponte.token,
-    };
-    delete env.NODE_OPTIONS;
-    delete env.CLAUDECODE;
-    if (this.id === 'gemini') {
-      const chave = await this.segredos?.get('fagulha.api.gemini');
-      if (!chave) throw new Error('Configure a chave do Google AI Studio no painel do agente.');
-      protegerSegredo(chave);
-      env.GEMINI_API_KEY = chave;
-      delete env.GOOGLE_API_KEY;
-      delete env.GOOGLE_GENAI_USE_VERTEXAI;
-      delete env.GOOGLE_GENAI_USE_GCA;
-      const settings = join(p.ponte.diretorio, 'gemini-settings.json');
-      const tools =
-        p.nivel === 'manual'
-          ? {
-              core: [],
-              discoveryCommand: '',
-              callCommand: '',
-              exclude: [
-                'read_file',
-                'read_many_files',
-                'list_directory',
-                'glob',
-                'grep_search',
-                'write_file',
-                'replace',
-                'run_shell_command',
-                'web_fetch',
-                'google_web_search',
-                'save_memory',
-              ],
-            }
-          : {
-              exclude: [
-                'run_shell_command',
-                'web_fetch',
-                'google_web_search',
-                'save_memory',
-                ...(p.modo === 'escrita'
-                  ? ['read_file', 'read_many_files', 'list_directory', 'glob', 'grep_search']
-                  : []),
-              ],
-            };
-      await writeFile(
-        settings,
-        JSON.stringify({
-          mcpServers: { fagulha_orquestrador: { ...servidor, trust: true } },
-          mcp: { allowed: ['fagulha_orquestrador'] },
-          tools,
-          admin: { extensions: { enabled: false }, skills: { enabled: false } },
-          security: {
-            enablePermanentToolApproval: false,
-            auth: { selectedType: 'gemini-api-key', enforcedType: 'gemini-api-key' },
-          },
-          general: { enableAutoUpdate: false },
-          context: {
-            fileName: [],
-            includeDirectoryTree: false,
-            memoryBoundaryMarkers: [],
-            includeDirectories: [],
-          },
-          hooksConfig: { enabled: false },
-          skills: { enabled: false },
-          telemetry: { enabled: false },
-          privacy: { usageStatisticsEnabled: false },
-          advanced: { ignoreLocalEnv: true },
-        }),
-        { mode: 0o600 },
-      );
-      env.GEMINI_CLI_SYSTEM_SETTINGS_PATH = settings;
-      env.GEMINI_CLI_TRUST_WORKSPACE = p.nivel === 'manual' ? 'false' : 'true';
-    }
-    const cwd =
-      p.nivel === 'manual' ? (this.isolamento ? await this.cwd() : p.ponte.diretorio) : p.projeto;
-    await mkdir(cwd, { recursive: true });
-    await this.avisarEnv(cwd, p.sessao ?? 'nova', ev);
-    let avisos = this.avisosCodex.get(p.sessao ?? '') ?? new Set<string>();
-    const chaveSessao = p.sessao ?? randomUUID();
-    this.avisosCodex.set(chaveSessao, avisos);
-    const avisar = (tipo: string, texto: string) => {
-      if (avisos.has(tipo)) return;
-      avisos.add(tipo);
-      (ev.sistema ?? ev.acao)(mascarar(texto));
-    };
-    const avisarConfig = () => avisar('config', avisoConfigCodex);
-    let herdados: McpHerdado[] = [];
-    if (this.id === 'codex') {
-      try {
-        let obsoletas = false;
-        const descoberta = await descobrirMcp(this.bin, env, async (json) => {
-          const saida = await rodar(
-            this.bin!.cmd,
-            [...this.bin!.prefixo, 'mcp', 'list', ...(json ? ['--json'] : [])],
-            {
-              cwd,
-              env,
-              sinal,
-              timeoutMs: 15_000,
-              filtrarLinha: filtroAvisoCodex(() => {
-                obsoletas = true;
-                avisarConfig();
-              }),
-            },
-          );
-          return { saida, obsoletas };
-        });
-        herdados = descoberta.servidores;
-        if (descoberta.obsoletas) avisarConfig();
-      } catch {
-        if (sinal.aborted) throw new Error('Execucao interrompida.');
-        if (p.nivel === 'manual')
-          throw new Error(
-            'Nao foi possivel verificar MCPs herdados do Codex. Execucao recusada: o nivel Manual exige isolamento.',
-          );
-        avisar(
-          'mcp',
-          'Aviso: nao foi possivel listar MCPs herdados do Codex; servidores de nomes desconhecidos podem continuar ativos nesta sessao.',
-        );
-      }
-      const { ativos } = isolamentoMcp(herdados, p.nivel);
-      if (ativos.length)
-        avisar(
-          'mcp',
-          `Aviso: os MCPs herdados do Codex ${ativos.join(', ')} podem continuar ativos nesta sessao porque seu transporte nao pode ser isolado com seguranca.`,
-        );
-    }
-    const args = montarArgumentos(
-      this.id,
-      p.modo,
-      p.nivel,
-      p.sessao,
-      config,
-      p.ponte.servidor,
-      process.execPath,
-      herdados,
-    );
-    await rodar(this.bin.cmd, [...this.bin.prefixo, ...args], {
-      cwd,
-      env,
-      stdin: p.prompt,
-      sinal,
-      filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,
-      linha: (l) => {
-        if (l.trim().startsWith('{')) {
-          let j;
-          try {
-            j = JSON.parse(l);
-          } catch {
-            return;
-          }
-          lerEvento(this.id, j, {
-            ...ev,
-            erro: (texto) => {
-              if (this.id === 'codex' && !filtroAvisoCodex(avisarConfig)(texto)) return;
-              ev.erro(texto);
-            },
-            sessao: (id) => {
-              if (this.avisosEnv.delete('nova')) this.avisosEnv.add(id);
-              if (this.id === 'codex') {
-                const anteriores = this.avisosCodex.get(id);
-                if (anteriores) for (const tipo of avisos) anteriores.add(tipo);
-                avisos = anteriores ?? avisos;
-                this.avisosCodex.delete(chaveSessao);
-                this.avisosCodex.set(id, avisos);
+    const settings = join(p.ponte.diretorio, 'gemini-settings.json');
+    try {
+      const servidor = {
+        command: process.execPath,
+        args: [p.ponte.servidor],
+        env: {
+          ELECTRON_RUN_AS_NODE: '1',
+          ORQUESTRA_BRIDGE_URL: '${ORQUESTRA_BRIDGE_URL}',
+          ORQUESTRA_BRIDGE_TOKEN: '${ORQUESTRA_BRIDGE_TOKEN}',
+        },
+      };
+      await writeFile(config, JSON.stringify({ mcpServers: { fagulha_orquestrador: servidor } }), {
+        mode: 0o600,
+      });
+      const env: NodeJS.ProcessEnv = {
+        ...(await this.ambiente()),
+        ORQUESTRA_BRIDGE_URL: p.ponte.url,
+        ORQUESTRA_BRIDGE_TOKEN: p.ponte.token,
+      };
+      delete env.NODE_OPTIONS;
+      delete env.CLAUDECODE;
+      if (this.id === 'gemini') {
+        const chave = await this.segredos?.get('fagulha.api.gemini');
+        if (!chave) throw new Error('Configure a chave do Google AI Studio no painel do agente.');
+        protegerSegredo(chave);
+        env.GEMINI_API_KEY = chave;
+        delete env.GOOGLE_API_KEY;
+        delete env.GOOGLE_GENAI_USE_VERTEXAI;
+        delete env.GOOGLE_GENAI_USE_GCA;
+        const tools =
+          p.nivel === 'manual'
+            ? {
+                core: [],
+                discoveryCommand: '',
+                callCommand: '',
+                exclude: [
+                  'read_file',
+                  'read_many_files',
+                  'list_directory',
+                  'glob',
+                  'grep_search',
+                  'write_file',
+                  'replace',
+                  'run_shell_command',
+                  'web_fetch',
+                  'google_web_search',
+                  'save_memory',
+                ],
               }
-              ev.sessao(id);
+            : {
+                exclude: [
+                  'run_shell_command',
+                  'web_fetch',
+                  'google_web_search',
+                  'save_memory',
+                  ...(p.modo === 'escrita'
+                    ? ['read_file', 'read_many_files', 'list_directory', 'glob', 'grep_search']
+                    : []),
+                ],
+              };
+        await writeFile(
+          settings,
+          JSON.stringify({
+            mcpServers: { fagulha_orquestrador: { ...servidor, trust: true } },
+            mcp: { allowed: ['fagulha_orquestrador'] },
+            tools,
+            admin: { extensions: { enabled: false }, skills: { enabled: false } },
+            security: {
+              enablePermanentToolApproval: false,
+              auth: { selectedType: 'gemini-api-key', enforcedType: 'gemini-api-key' },
             },
+            general: { enableAutoUpdate: false },
+            context: {
+              fileName: [],
+              includeDirectoryTree: false,
+              memoryBoundaryMarkers: [],
+              includeDirectories: [],
+            },
+            hooksConfig: { enabled: false },
+            skills: { enabled: false },
+            telemetry: { enabled: false },
+            privacy: { usageStatisticsEnabled: false },
+            advanced: { ignoreLocalEnv: true },
+          }),
+          { mode: 0o600 },
+        );
+        env.GEMINI_CLI_SYSTEM_SETTINGS_PATH = settings;
+        env.GEMINI_CLI_TRUST_WORKSPACE = p.nivel === 'manual' ? 'false' : 'true';
+      }
+      const cwd =
+        p.nivel === 'manual' ? (this.isolamento ? await this.cwd() : p.ponte.diretorio) : p.projeto;
+      await mkdir(cwd, { recursive: true });
+      await this.avisarEnv(cwd, p.sessao ?? 'nova', ev);
+      let avisos = this.avisosCodex.get(p.sessao ?? '') ?? new Set<string>();
+      const chaveSessao = p.sessao ?? randomUUID();
+      this.avisosCodex.set(chaveSessao, avisos);
+      const avisar = (tipo: string, texto: string) => {
+        if (avisos.has(tipo)) return;
+        avisos.add(tipo);
+        (ev.sistema ?? ev.acao)(mascarar(texto));
+      };
+      const avisarConfig = () => avisar('config', avisoConfigCodex);
+      let herdados: McpHerdado[] = [];
+      if (this.id === 'codex') {
+        try {
+          let obsoletas = false;
+          const descoberta = await descobrirMcp(this.bin, env, async (json) => {
+            const saida = await rodar(
+              this.bin!.cmd,
+              [...this.bin!.prefixo, 'mcp', 'list', ...(json ? ['--json'] : [])],
+              {
+                cwd,
+                env,
+                sinal,
+                timeoutMs: 15_000,
+                filtrarLinha: filtroAvisoCodex(() => {
+                  obsoletas = true;
+                  avisarConfig();
+                }),
+              },
+            );
+            return { saida, obsoletas };
           });
+          herdados = descoberta.servidores;
+          if (descoberta.obsoletas) avisarConfig();
+        } catch {
+          if (sinal.aborted) throw new Error('Execucao interrompida.');
+          if (p.nivel === 'manual')
+            throw new Error(
+              'Nao foi possivel verificar MCPs herdados do Codex. Execucao recusada: o nivel Manual exige isolamento.',
+            );
+          avisar(
+            'mcp',
+            'Aviso: nao foi possivel listar MCPs herdados do Codex; servidores de nomes desconhecidos podem continuar ativos nesta sessao.',
+          );
         }
-      },
-    });
+        const { ativos } = isolamentoMcp(herdados, p.nivel);
+        if (ativos.length)
+          avisar(
+            'mcp',
+            `Aviso: os MCPs herdados do Codex ${ativos.join(', ')} podem continuar ativos nesta sessao porque seu transporte nao pode ser isolado com seguranca.`,
+          );
+      }
+      const args = montarArgumentos(
+        this.id,
+        p.modo,
+        p.nivel,
+        p.sessao,
+        config,
+        p.ponte.servidor,
+        process.execPath,
+        herdados,
+      );
+      await rodar(this.bin.cmd, [...this.bin.prefixo, ...args], {
+        cwd,
+        env,
+        stdin: p.prompt,
+        sinal,
+        filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,
+        linha: (l) => {
+          if (l.trim().startsWith('{')) {
+            let j;
+            try {
+              j = JSON.parse(l);
+            } catch {
+              return;
+            }
+            lerEvento(this.id, j, {
+              ...ev,
+              erro: (texto) => {
+                if (this.id === 'codex' && !filtroAvisoCodex(avisarConfig)(texto)) return;
+                ev.erro(texto);
+              },
+              sessao: (id) => {
+                if (this.avisosEnv.delete('nova')) this.avisosEnv.add(id);
+                if (this.id === 'codex') {
+                  const anteriores = this.avisosCodex.get(id);
+                  if (anteriores) for (const tipo of avisos) anteriores.add(tipo);
+                  avisos = anteriores ?? avisos;
+                  this.avisosCodex.delete(chaveSessao);
+                  this.avisosCodex.set(id, avisos);
+                }
+                ev.sessao(id);
+              },
+            });
+          }
+        },
+      });
+    } finally {
+      for (const arquivo of [config, settings])
+        await unlink(arquivo).catch((e) => {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        });
+    }
   }
 }

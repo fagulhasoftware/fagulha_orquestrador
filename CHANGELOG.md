@@ -1,5 +1,10 @@
 # Histórico de versões
 
+## 0.2.2
+
+- Corrigido: ferramentas do Orquestrador (web, arquivos, memoria) recusadas para Claude e Codex antes do cartao de aprovacao.
+- Diagnosticos da ponte distinguem variaveis ausentes, token revogado, argumentos invalidos e recusas no Portao.
+
 ## 0.2.1 — em desenvolvimento
 
 - **Menu Chats:** todas as suas conversas, de qualquer projeto e janela, com busca, fixar, renomear,

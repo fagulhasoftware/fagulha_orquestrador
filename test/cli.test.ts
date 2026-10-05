@@ -32,6 +32,9 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[])
           assert(!args.some((a) => a.includes('cli_auth_credentials_store')));
           assert(args.includes('sandbox_workspace_write.network_access=false'));
           assert(args.includes('mcp_servers.fagulha_orquestrador.enabled=true'));
+          assert(
+            args.includes('mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"'),
+          );
           assert(args.includes('sandbox_workspace_write.writable_roots=[]'));
           assert(args.includes('sandbox_workspace_write.exclude_tmpdir_env_var=true'));
           assert(args.includes('sandbox_workspace_write.exclude_slash_tmp=true'));
@@ -46,6 +49,7 @@ test('retomada e sandbox explicitos; nenhum token nos argumentos', () => {
   const c = montarArgumentos('codex', 'escrita', 'parcial', 'sessao-1');
   assert.deepEqual(c.slice(0, 3), ['exec', 'resume', 'sessao-1']);
   assert(c.includes('sandbox_mode="workspace-write"'));
+  assert(c.includes('mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"'));
   for (const id of ['claude', 'gemini'] as CliId[]) {
     const a = montarArgumentos(id, 'leitura', 'manual', 'sessao-2');
     assert.equal(a[a.indexOf('--resume') + 1], 'sessao-2');

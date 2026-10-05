@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, readFile, mkdir } from 'node:fs/promises';
+import { writeFile, readFile, mkdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ProvedorCli, type CliId } from '../src/providers/cli';
 import type { EventosProvedor, PedidoExecucao } from '../src/providers/tipos';
@@ -21,7 +21,8 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         if(args.includes('--version')){console.log('fixture 1.0');process.exit(0);}
         if(args[0]==='mcp'){console.log(JSON.stringify([{name:'herdado',enabled:true,transport:{type:'stdio',command:'node',args:[]}}]));process.exit(0);}
         const settings=process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
-        fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({cwd:process.cwd(),args,home:process.env.CODEX_HOME,chaveGeminiPresente:process.env.GEMINI_API_KEY==='fixture-gemini-apenas-em-memoria-0000',settings:settings?JSON.parse(fs.readFileSync(settings,'utf8')):null}));
+        const caminhoMcp=args[args.indexOf('--mcp-config')+1];
+        fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({cwd:process.cwd(),args,home:process.env.CODEX_HOME,chaveGeminiPresente:process.env.GEMINI_API_KEY==='fixture-gemini-apenas-em-memoria-0000',mcp:args.includes('--mcp-config')?JSON.parse(fs.readFileSync(caminhoMcp,'utf8')):null,settings:settings?JSON.parse(fs.readFileSync(settings,'utf8')):null}));
         console.log(JSON.stringify({type:'init',session_id:'fixture-sessao'}));
       `,
       );
@@ -52,6 +53,15 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
       };
       await provedor.executar(pedido, ev, new AbortController().signal);
       const manual = JSON.parse(await readFile(registro, 'utf8'));
+      await assert.rejects(access(join(pedido.ponte.diretorio, 'mcp.json')));
+      await assert.rejects(access(join(pedido.ponte.diretorio, 'gemini-settings.json')));
+      if (id === 'claude' || id === 'gemini') {
+        const servidor = (id === 'claude' ? manual.mcp : manual.settings).mcpServers
+          .fagulha_orquestrador;
+        assert.equal(servidor.env.ORQUESTRA_BRIDGE_URL, '${ORQUESTRA_BRIDGE_URL}');
+        assert.equal(servidor.env.ORQUESTRA_BRIDGE_TOKEN, '${ORQUESTRA_BRIDGE_TOKEN}');
+        assert(!JSON.stringify(servidor).includes(pedido.ponte.token));
+      }
       assert.notEqual(manual.cwd, projeto);
       assert.equal(manual.home, process.env.CODEX_HOME);
       if (id === 'gemini') {

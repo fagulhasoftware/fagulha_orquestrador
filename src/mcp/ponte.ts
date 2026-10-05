@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { validarArgumentos } from './ferramentas';
+import { AcaoRecusada } from '../permissions/portao';
 export interface Capacidade {
   agente: string;
   sinal: AbortSignal;
@@ -28,7 +29,7 @@ export class PonteHttp {
         }
       };
       if (req.method !== 'POST' || req.url !== '/ferramenta' || req.headers.origin) {
-        responder(403, { erro: 'Requisicao recusada.' });
+        responder(403, { codigo: 'requisicao_recusada' });
         return;
       }
       const recebido = String(req.headers.authorization ?? '').replace(/^Bearer /, '');
@@ -38,7 +39,7 @@ export class PonteHttp {
           timingSafeEqual(Buffer.from(token), Buffer.from(recebido)),
       )?.[1];
       if (!capacidade || capacidade.sinal.aborted) {
-        responder(401, { erro: 'Nao autorizado.' });
+        responder(401, { codigo: 'token_recusado' });
         return;
       }
       const desconectado = new AbortController();
@@ -47,7 +48,7 @@ export class PonteHttp {
       });
       const timer = setTimeout(() => {
         desconectado.abort();
-        responder(408, { erro: 'Timeout.' });
+        responder(408, { codigo: 'tempo_esgotado' });
       }, 180_000);
       try {
         let bytes = 0;
@@ -55,19 +56,33 @@ export class PonteHttp {
         for await (const chunk of req) {
           bytes += chunk.length;
           if (bytes > 2_100_000) {
-            responder(413, { erro: 'Corpo excede limite.' });
+            responder(413, { codigo: 'argumentos_invalidos' });
             req.destroy();
             return;
           }
           chunks.push(chunk);
         }
-        const pedido = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const args = validarArgumentos(pedido.nome, pedido.args);
+        let pedido: { nome: string; args: unknown }, args: Record<string, unknown>;
+        try {
+          pedido = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          args = validarArgumentos(pedido.nome, pedido.args);
+        } catch {
+          responder(400, { codigo: 'argumentos_invalidos' });
+          return;
+        }
         const sinal = AbortSignal.any([capacidade.sinal, desconectado.signal]);
         const resultado = await this.chamar(capacidade.agente, pedido.nome, args, sinal);
         responder(200, { resultado });
-      } catch {
-        responder(400, { erro: 'Ferramenta falhou, foi negada ou recebeu argumentos invalidos.' });
+      } catch (e) {
+        if (e instanceof AcaoRecusada) {
+          const codigo = {
+            usuario: 'acao_negada_usuario',
+            modo: 'modo_recusado',
+            expirada: 'aprovacao_expirada',
+            cancelada: 'execucao_encerrada',
+          }[e.motivo];
+          responder(403, { codigo });
+        } else responder(500, { codigo: 'ferramenta_falhou' });
       } finally {
         clearTimeout(timer);
       }

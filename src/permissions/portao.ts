@@ -17,6 +17,11 @@ export interface Acao {
   detalhe: string;
   critica?: boolean;
 }
+export class AcaoRecusada extends Error {
+  constructor(readonly motivo: 'usuario' | 'modo' | 'expirada' | 'cancelada') {
+    super('Acao negada ou aprovacao expirada.');
+  }
+}
 export class Portao {
   readonly pendentes = new Map<string, PedidoAprovacao>();
   private respostas = new Map<string, (d: DecisaoAprovacao | 'expirada') => void>();
@@ -98,7 +103,15 @@ export class Portao {
       quando: new Date().toISOString(),
     });
     if (resultado === 'negar' || resultado === 'expirada' || sinal?.aborted)
-      throw new Error('Acao negada ou aprovacao expirada.');
+      throw new AcaoRecusada(
+        sinal?.aborted
+          ? 'cancelada'
+          : decisao === 'negada'
+            ? 'modo'
+            : resultado === 'expirada'
+              ? 'expirada'
+              : 'usuario',
+      );
     return efeito();
   }
 }

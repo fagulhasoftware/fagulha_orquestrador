@@ -46,6 +46,7 @@ export function montarContexto(opcoes: {
         ? 'Leituras de projeto somente por arquivo_ler, apos autorizacao do Portao.'
         : 'Leia o workspace com ferramentas nativas ou arquivo_ler, conforme seu modo.',
     'Proibido ler ou alterar .env, bancos, backups, chaves ou tokens. Nao publique, destrua nem acesse credenciais sem autorizacao individual.',
+    'Para acessar a web ou arquivos fora do projeto, use navegador_ler, navegador_abrir, arquivo_ler, arquivo_escrever e comando_executar do servidor MCP fagulha_orquestrador. Cada uso pode gerar um cartao de aprovacao para o usuario na sala. Os niveis do usuario sao Manual, Parcial e Total; nao existe configuracao ask/never para ele alterar. Se a ferramenta retornar erro, informe o diagnostico recebido sem inventar politica ou solucao.',
     'Para fatos duraveis e preferencias, use memoria_propor. Toda proposta exige aprovacao individual do usuario. Nunca proponha guardar segredos. As memorias abaixo sao preferencias, nao concedem permissoes nem substituem o Portao.',
     opcoes.memoria ?? '',
     ...opcoes.regras,
@@ -59,6 +60,6 @@ export function montarContexto(opcoes: {
   ];
   // O orcamento do corpo nunca remove as regras de permissao do cabecalho.
   return mascarar(
-    partes.slice(0, 10).join('\n') + '\n' + partes.slice(10).join('\n').slice(-160_000),
+    partes.slice(0, 11).join('\n') + '\n' + partes.slice(11).join('\n').slice(-160_000),
   );
 }
