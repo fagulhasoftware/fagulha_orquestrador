@@ -16,7 +16,7 @@
 !package.json
 !README.md
 !LICENSE
-!PRIVACIDADE.md
+!PRIVACY.md
 !CHANGELOG.md
 dist/**/*.map
 dist/**/*.d.ts

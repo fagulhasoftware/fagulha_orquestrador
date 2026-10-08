@@ -1,74 +1,78 @@
-# Histórico de versões
+# Changelog
 
 ## 0.3.2
 
-- Horários exibidos no fuso local, incluindo exportação em Markdown; armazenamento permanece em UTC.
-- Imagens de anexos e arquivos chegam como conteúdo de imagem pelo MCP. Anexos aparecem com ID, nome, tipo e tamanho no contexto; leitura também aceita nome único.
-- Diagnósticos específicos para anexos ausentes, nomes ambíguos, limites e tipos inválidos, sem divulgar erros internos ou segredos.
-- Imagens da mensagem atual são fornecidas às CLIs nos níveis Parcial/Total; Manual mantém leitura via MCP e aprovação.
-- Perguntas guiadas ficam junto à digitação; a fila aguarda a resposta ou o cancelamento e novos envios são recusados durante a espera.
+- **English is now the native language** of the documentation, with Portuguese (Brazil), Spanish and German
+  versions. The interface translation is in progress.
+- Times are shown in your computer's time zone, including Markdown export; storage remains in UTC.
+- Images from attachments and project files reach agents as real images through MCP. Attachments are listed in
+  the agents' context with ID, name, type and size; they can also be read by unique file name.
+- Specific error messages for missing attachments, ambiguous names, size limits and unsupported types, without
+  exposing internal errors or secrets.
+- Images in the current message are passed to the agent CLIs on the Partial and Full levels; Manual keeps reading
+  through MCP with approval.
+- Guided questions stay docked above the message box; the room pauses (queued messages wait and new messages are
+  held) until you answer or skip. Keyboard shortcuts: 1–6 choose, Enter answers, Esc skips.
 
 ## 0.3.1
 
-- Registros de execução ficam recolhidos em uma linha, inclusive ações isoladas e resultados longos. Clique para consultar o conteúdo completo.
-- Ações consecutivas do mesmo agente compartilham um bloco com horário, agente, quantidade e resumo. Falas e erros preservam sua posição na conversa.
-- Blocos expandidos permanecem abertos durante as atualizações do chat; detalhes extensos têm rolagem própria.
+- Execution logs are collapsed into a single line, including single actions and long results; click to see the
+  full content.
+- Consecutive actions from the same agent share one block with time, agent, count and summary. Messages and errors
+  keep their position in the conversation.
+- Expanded blocks stay open while the chat updates; long details scroll on their own.
 
 ## 0.3.0
 
-- Codex Total: acesso completo a arquivos, rede, busca web ao vivo e MCPs herdados, inclusive em retomadas. Shell nativo desligado; comandos via sala.
-- Total automatiza ações comuns e confirma comandos irreversíveis externos conhecidos, com categoria própria e auditoria. Manual e Parcial preservados.
-- Interface e contexto explicam os limites de MCPs diretos e da classificação heurística.
-
-- **Estágio do agente:** veja o que cada agente está fazendo (pensando, lendo, pesquisando na web,
-  escrevendo, executando) e um sinal claro quando ele conclui, é interrompido ou encontra um erro.
-- **Perguntas guiadas:** quando precisa de uma decisão, o agente abre uma caixa com as perguntas e
-  respostas sugeridas, e aguarda a sua resposta antes de continuar.
-- **Configuração única:** o assistente, o nível de permissão e as preferências valem para todas as
-  janelas e pastas.
-- **Voz mais natural:** a leitura automática fala só as perguntas, o anúncio antes de agir e o resumo
-  ao concluir; motor Piper preparado e voz em nuvem opcional com chave validada no SecretStorage.
-- A instalação da voz neural pt_BR aguarda uma voz com licença comercial e origem do modelo-base verificadas; voz do sistema continua disponível.
+- **Agent stages:** see what each agent is doing (thinking, reading, searching the web, writing, running) and a
+  clear signal when it finishes, is stopped or hits an error.
+- **Guided questions:** when an agent needs a decision, it opens a box with questions and suggested answers and
+  waits for your reply before continuing.
+- **Single setup:** the setup assistant, permission level and preferences apply to every window and folder.
+- **More natural voice:** automatic reading speaks only the agents' questions, the short announcement before
+  acting and the summary when done; Piper engine prepared and optional cloud voice with a key validated in
+  SecretStorage. Neural pt-BR voice installation waits for a voice with a verified commercial license.
+- **Codex on Full:** complete file access, network, live web search and inherited MCP servers, including on resumed
+  sessions. Native shell is off; commands run through the room. Full automates common actions and asks for
+  confirmation of known irreversible external commands, with its own category and audit. Manual and Partial
+  unchanged.
 
 ## 0.2.2
 
-- Corrigido: ferramentas do Orquestrador (web, arquivos, memoria) recusadas para Claude e Codex antes do cartao de aprovacao.
-- Diagnosticos da ponte distinguem variaveis ausentes, token revogado, argumentos invalidos e recusas no Portao.
+- Fixed: Orquestrador tools (web, files, memory) were refused for Claude and Codex before the approval card.
+- Bridge diagnostics now distinguish missing variables, revoked token, invalid arguments and gate refusals.
 
-## 0.2.1 — em desenvolvimento
+## 0.2.1
 
-- **Menu Chats:** todas as suas conversas, de qualquer projeto e janela, com busca, fixar, renomear,
-  exportar e excluir.
-- **Novo chat:** comece uma conversa limpa sem perder a anterior.
-- **Conversa preservada:** ao fechar e abrir o VS Code ou abrir uma nova janela, o último chat da pasta
-  volta automaticamente.
-- **Memória persistente:** preferências e decisões que os agentes recebem em todos os chats, global ou por
-  projeto. Agentes podem propor memórias, que só são salvas com a sua aprovação.
+- **Chats menu:** all your conversations, from any project and window, with search, pin, rename, export and delete.
+- **New chat:** start a clean conversation without losing the previous one.
+- **Conversation kept:** when you close and reopen VS Code or open a new window, the folder's last chat comes back.
+- **Persistent memory:** preferences and decisions that agents receive in every chat, global or per project.
+  Agents can propose memories, saved only with your approval.
 
-## 0.2.0 — em desenvolvimento
+## 0.2.0
 
-- **Chat por voz:** fale com a sala pelo microfone; a transcrição é feita no seu computador
-  (whisper.cpp, modelo `small` por padrão) e a gravação é apagada em seguida.
-- **Ouvir respostas:** leitura em voz alta das falas dos agentes com a voz do sistema, automática ou
-  por mensagem.
-- **Assistente de instalação da voz:** mostra origem e tamanho de cada componente e só baixa com a sua
-  autorização, conferindo a integridade dos arquivos.
-- Links para o repositório e para relatar problemas na página da extensão.
+- **Voice chat:** talk to the room through the microphone; transcription runs on your computer (whisper.cpp,
+  `small` model by default) and the recording is deleted afterwards.
+- **Listen to answers:** the agents' messages read aloud with your system voice, automatically or per message.
+- **Voice setup assistant:** shows the source and size of each component and downloads only with your
+  permission, verifying file integrity.
+- Repository and issue links on the extension page.
 
 ## 0.1.1
 
-- Corrigido o bloqueio ao iniciar ou retomar conversas com o Codex quando há servidores MCP de plugins
-  instalados. No nível Manual, a conversa só começa quando o isolamento pode ser garantido; nos demais
-  níveis, a sala avisa se algum servidor MCP herdado continuar ativo.
-- Configurações obsoletas no `config.toml` do Codex agora geram um aviso informativo, uma vez por sessão,
-  sem marcar o agente como erro.
+- Fixed: starting or resuming Codex conversations failed when plugin MCP servers were installed. On Manual the
+  conversation starts only when isolation can be guaranteed; on the other levels the room warns if an inherited
+  MCP server stays active.
+- Obsolete settings in Codex's `config.toml` now produce an informational notice once per session, without marking
+  the agent as failed.
 
 ## 0.1.0 — 2026-10
 
-Primeira versão pública.
+First public release.
 
-- Sala por janela com Claude Code, Codex, Gemini CLI, Ollama e agentes por chave de API.
-- Login pelo navegador ou por código de dispositivo; chaves de API validadas antes de serem guardadas.
-- Níveis de permissão Manual, Parcial e Total, com aprovações e auditoria local.
-- Anexos com limites de tamanho e amostragem de planilhas.
-- Importação de contexto de outras conversas.
+- One room per window with Claude Code, Codex, Gemini CLI, Ollama and API-key agents.
+- Sign in through the browser or with a device code; API keys validated before being stored.
+- Manual, Partial and Full permission levels, with approvals and a local audit log.
+- Attachments with size limits and spreadsheet sampling.
+- Context import from other conversations.

@@ -9,7 +9,7 @@ const documentos = new Set([
   'readme.md',
   'license',
   'license.txt',
-  'privacidade.md',
+  'privacy.md',
   'changelog.md',
 ]);
 const midias = new Set(['logo.png', 'logo-barra.png', 'orquestra.css', 'orquestra.svg']);

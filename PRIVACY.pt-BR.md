@@ -1,5 +1,7 @@
 # Política de Privacidade — Orquestrador Fagulha
 
+[English](PRIVACY.md)
+
 Última atualização: 4 de outubro de 2026.
 
 O Orquestrador Fagulha é uma extensão do VS Code que roda inteiramente no computador de quem a instala.

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Relatar vulnerabilidade de segurança
+  - name: Report a security vulnerability
     url: https://github.com/fagulhasoftware/fagulha_orquestrador/security/advisories/new
-    about: Relatos de segurança são privados. Não use issues públicas.
-  - name: Contato com a Fagulha
+    about: Security reports are private. Do not use public issues.
+  - name: Contact Fagulha
     url: https://fagulha.net/contato
-    about: Assuntos comerciais e outros contatos.
+    about: Business and other inquiries.

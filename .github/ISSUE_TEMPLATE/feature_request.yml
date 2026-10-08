@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a feature, a new agent or an improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the current situation and why it is limiting.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How do you imagine the solution? Include usage examples if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Project rules
+      description: Every proposal must follow the rules in the contributing guide.
+      options:
+        - label: The proposal keeps user data only on the user's computer, with no telemetry.
+          required: true
+        - label: Agent actions still go through the approval gate.
+          required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I am interested in implementing this.

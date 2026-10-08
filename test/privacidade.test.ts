@@ -155,7 +155,7 @@ test('guarda recusa arquivos pessoais/de desenvolvimento e somente aceita lista 
     'readme.md',
     'LICENSE',
     'LICENSE.txt',
-    'PRIVACIDADE.md',
+    'PRIVACY.md',
     'changelog.md',
   ])
     assert.deepEqual(guarda.motivosArquivo(`extension/${nome}`), []);

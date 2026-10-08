@@ -1,47 +1,49 @@
-# Política de segurança
+# Security policy
 
-O Orquestrador Fagulha lida com credenciais e permite que agentes de IA leiam e alterem arquivos. Por isso,
-tratamos relatos de segurança com prioridade.
+[Português (Brasil)](SECURITY.pt-BR.md)
 
-## Versões suportadas
+Orquestrador Fagulha handles credentials and lets AI agents read and change files. Security reports are therefore
+treated as a priority.
 
-| Versão | Recebe correções de segurança |
+## Supported versions
+
+| Version | Receives security fixes |
 |---|---|
-| 0.1.x (mais recente) | Sim |
-| Anteriores | Não |
+| Latest 0.x release | Yes |
+| Older releases | No |
 
-## Como relatar uma vulnerabilidade
+## How to report a vulnerability
 
-**Não abra uma *issue* pública.** Use um destes canais privados:
+**Do not open a public issue.** Use one of these private channels:
 
-1. **GitHub (preferencial):** na aba **Security** do repositório, clique em
-   **Report a vulnerability** para abrir um relato privado.
-2. **Formulário de contato:** https://fagulha.net/contato, com o assunto "Segurança — Orquestrador Fagulha".
+1. **GitHub (preferred):** in the repository's **Security** tab, click **Report a vulnerability** to open a private
+   report.
+2. **Contact form:** https://fagulha.net/contato, with the subject "Security — Orquestrador Fagulha".
 
-Inclua, se possível:
+Please include, if possible:
 
-- versão da extensão, do VS Code e do sistema operacional;
-- agentes envolvidos (Claude Code, Codex, Gemini CLI, API…) e o nível de permissão em uso;
-- passos para reproduzir e o impacto esperado;
-- uma prova de conceito, **sem** dados reais, chaves ou credenciais de ninguém.
+- extension, VS Code and operating system versions;
+- agents involved (Claude Code, Codex, Gemini CLI, API…) and the permission level in use;
+- steps to reproduce and the expected impact;
+- a proof of concept **without** real data, keys or anyone's credentials.
 
-## O que acontece depois
+## What happens next
 
-- Confirmamos o recebimento em até **5 dias úteis**.
-- Avaliamos e informamos a gravidade e um prazo estimado de correção.
-- Publicamos a correção e, com a sua autorização, damos crédito pelo relato nas notas da versão.
+- We acknowledge receipt within **5 business days**.
+- We assess severity and share an estimated fix timeline.
+- We publish the fix and, with your permission, credit you in the release notes.
 
-Pedimos que a vulnerabilidade não seja divulgada até que a correção esteja disponível.
+Please do not disclose the vulnerability until the fix is available.
 
-## Escopo
+## Scope
 
-Exemplos de problemas que nos interessam:
+Examples of issues we care about:
 
-- vazamento de chaves, tokens ou conteúdo do SecretStorage;
-- ações de agentes que contornem o Portão de Permissões ou a matriz de níveis;
-- leitura de arquivos protegidos (`.env`, chaves, bancos locais) sem aprovação;
-- envio de dados do usuário para fora do computador sem pedido explícito;
-- execução de código a partir de anexos, páginas web ou conversas importadas.
+- leaking keys, tokens or SecretStorage content;
+- agent actions that bypass the approval gate or the permission matrix;
+- reading protected files (`.env`, keys, local databases) without approval;
+- sending user data off the computer without an explicit request;
+- code execution from attachments, web pages or imported conversations.
 
-Fora do escopo: vulnerabilidades dos próprios CLIs ou APIs dos provedores (relate diretamente a eles) e
-riscos aceitos conscientemente pelo usuário ao escolher o nível de permissão **Total**.
+Out of scope: vulnerabilities in the providers' own CLIs or APIs (report them directly) and risks knowingly
+accepted by the user when choosing the **Full** permission level.

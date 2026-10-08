@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in Orquestrador Fagulha does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Do not include keys, tokens, e-mails, personal paths or confidential content**
+        below. Security vulnerabilities must be reported in the Security tab, not here.
+        You can write in English, Portuguese, Spanish or German.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Orquestrador Fagulha
+        2. Mention @codex with ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      placeholder: "0.3.2"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: VS Code and operating system
+      placeholder: "VS Code 1.140, Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: agents
+    attributes:
+      label: Agents involved
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - Gemini CLI
+        - Ollama
+        - OpenAI / compatible API
+        - Anthropic API
+        - Gemini API
+        - None / interface
+  - type: dropdown
+    id: level
+    attributes:
+      label: Permission level
+      options:
+        - Manual
+        - Partial
+        - Full
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages (optional)
+      description: Copy the error text shown in the room. Review it and remove personal data before submitting.
+      render: text

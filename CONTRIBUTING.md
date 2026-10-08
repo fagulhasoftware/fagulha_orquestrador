@@ -1,26 +1,29 @@
-# Guia de contribuição
+# Contributing guide
 
-Obrigado pelo interesse em contribuir com o Orquestrador Fagulha. Este guia explica como propor
-mudanças de forma que elas possam ser revisadas e incorporadas com segurança.
+[Português (Brasil)](CONTRIBUTING.pt-BR.md)
 
-Ao participar, você concorda com o nosso [código de conduta](CODE_OF_CONDUCT.md).
+Thank you for your interest in contributing to Orquestrador Fagulha. This guide explains how to propose changes
+so they can be reviewed and merged safely.
 
-## Formas de contribuir
+By participating, you agree to our [code of conduct](CODE_OF_CONDUCT.md).
 
-- **Relatar um erro:** abra uma *issue* com o modelo "Relatar erro".
-- **Sugerir uma melhoria:** abra uma *issue* com o modelo "Sugerir melhoria" antes de começar a programar,
-  para alinharmos a abordagem.
-- **Corrigir ou implementar:** escolha uma *issue* (as marcadas `boa primeira contribuição` são um bom começo),
-  comente que vai trabalhar nela e abra um *pull request*.
-- **Adicionar um agente:** novos agentes podem entrar por manifesto ou por outra extensão; veja a seção 4 de
+## Ways to contribute
+
+- **Report a bug:** open an issue with the "Bug report" template.
+- **Suggest an improvement:** open an issue with the "Feature request" template before coding, so we can agree on
+  the approach.
+- **Fix or implement:** pick an issue (those labeled `good first issue` are a good start), comment that you are
+  working on it and open a pull request.
+- **Add an agent:** new agents can be added through manifests or another extension; see section 4 of
   [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
-- **Documentação e traduções:** correções de texto são sempre bem-vindas.
+- **Documentation and translations:** English, Portuguese (Brazil), Spanish and German are supported; corrections
+  by native speakers are especially welcome.
 
-Vulnerabilidades **não** devem ser relatadas em *issues*; siga a [política de segurança](SECURITY.md).
+Vulnerabilities must **not** be reported in issues; follow the [security policy](SECURITY.md).
 
-## Preparando o ambiente
+## Setting up
 
-Pré-requisitos: Node.js 20 ou superior, Git e VS Code 1.95 ou superior.
+Prerequisites: Node.js 20 or later, Git and VS Code 1.95 or later.
 
 ```bash
 git clone https://github.com/fagulhasoftware/fagulha_orquestrador.git
@@ -30,66 +33,67 @@ npm run build
 npm test
 ```
 
-Pressione **F5** no VS Code para abrir uma janela de desenvolvimento com a extensão carregada.
-Para testar agentes reais, use **as suas próprias contas**; os testes automatizados nunca usam contas,
-chaves ou rede reais.
+Press **F5** in VS Code to open a development window with the extension loaded. To try real agents, use **your
+own accounts**; automated tests never use real accounts, keys or network.
 
-## Fluxo de trabalho
+## Workflow
 
-1. Faça um *fork* do repositório e crie uma branch a partir de `main`:
-   `git checkout -b correcao/descricao-curta` (ou `recurso/…`, `docs/…`).
-2. Faça mudanças pequenas e focadas: um *pull request* resolve um assunto.
-3. Escreva ou atualize testes para o comportamento alterado.
-4. Antes de enviar, rode:
+1. Fork the repository and create a branch from `main`:
+   `git checkout -b fix/short-description` (or `feature/…`, `docs/…`).
+2. Keep changes small and focused: one pull request solves one thing.
+3. Write or update tests for the changed behavior.
+4. Before submitting, run:
    ```bash
    npm run format
    npm run check:webview
    npm test
    npm run package
    ```
-   O `npm run package` também executa o **verificador de privacidade**, que impede que o pacote contenha
-   caminhos pessoais, e-mails, chaves ou arquivos locais. Ele precisa passar.
-5. Abra o *pull request* preenchendo o modelo e descrevendo o que mudou e como testou.
+   `npm run package` also runs the **privacy check**, which prevents the package from containing personal paths,
+   e-mails, keys or local files. It must pass.
+5. Open the pull request filling in the template, describing what changed and how you tested it.
 
-## Padrão de commits
+## Commit messages
 
-Use o formato [Conventional Commits](https://www.conventionalcommits.org/pt-br/), em português:
+Use [Conventional Commits](https://www.conventionalcommits.org/), in English:
 
 ```
-tipo: descrição curta no imperativo
+type: short description in the imperative
 
-Explicação opcional do porquê da mudança.
+Optional explanation of why the change was made.
 ```
 
-Tipos usados: `feat` (recurso), `fix` (correção), `docs`, `test`, `refactor`, `chore`, `perf`.
-Exemplo: `fix: recusar planilha xlsb antes de copiar o anexo`.
+Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `perf`.
+Example: `fix: reject xlsb spreadsheets before copying the attachment`.
 
-## Regras do projeto
+## Project rules
 
-Estas regras protegem os usuários e não são negociáveis:
+These rules protect users and are not negotiable:
 
-1. **Dados somente locais.** Nenhuma funcionalidade pode enviar dados do usuário para servidores da
-   Fagulha ou de terceiros, nem incluir telemetria. Rede só para os provedores que o próprio usuário configurou.
-2. **Segredos só no SecretStorage do VS Code.** Chaves e tokens nunca vão para arquivos, logs, banco local,
-   mensagens da sala, prompts ou para a interface.
-3. **Toda ação de agente passa pelo Portão de Permissões.** Novas ferramentas devem declarar a categoria
-   de ação e respeitar a matriz de permissões (`src/permissions/matriz.ts`), com testes.
-4. **Limites de anexos são rígidos.** Planilhas e arquivos grandes nunca são lidos por inteiro.
-5. **Sem dependências nativas.** Nada que exija compilação para o Electron do VS Code.
-6. **Nada pessoal no repositório.** Não versione arquivos de `~/.orquestra`, bancos `.sqlite`, logs, `.env`,
-   pacotes `.vsix`, caminhos da sua máquina ou dados reais em testes; use dados fictícios (`@example.com`).
+1. **Local data only.** No feature may send user data to Fagulha or third-party servers, or add telemetry.
+   Network access only to providers the user configured.
+2. **Secrets only in VS Code SecretStorage.** Keys and tokens never go to files, logs, the local database, room
+   messages, prompts or the UI.
+3. **Every agent action goes through the approval gate.** New tools must declare their action category and follow
+   the permission matrix (`src/permissions/matriz.ts`), with tests.
+4. **Attachment limits are strict.** Spreadsheets and large files are never read in full.
+5. **No native dependencies.** Nothing that requires compiling for VS Code's Electron.
+6. **Nothing personal in the repository.** Do not commit files from `~/.orquestra`, `.sqlite` databases, logs,
+   `.env`, `.vsix` packages, paths from your machine or real data in tests; use fake data (`@example.com`).
+7. **Translations.** User-facing text must exist in every supported language (en, pt-BR, es, de); English is the
+   source language.
 
-## Contrato entre interface e extensão
+## UI ↔ extension contract
 
-A interface (`src/webview/`) e a extensão (`src/extension.ts`, `src/core/`, …) conversam somente pelos tipos
-de `src/shared/protocolo.ts`. Mudanças nesse arquivo afetam os dois lados: descreva-as no *pull request*
-e, se mudarem o formato de mensagens existentes, aumente `VERSAO_PROTOCOLO`.
+The UI (`src/webview/`) and the extension host (`src/extension.ts`, `src/core/`, …) talk only through the types in
+`src/shared/protocolo.ts`. Changes to that file affect both sides: describe them in the pull request and, if they
+change the format of existing messages, bump `VERSAO_PROTOCOLO`.
 
-## Revisão
+## Review
 
-Um mantenedor revisará o *pull request*. Podemos pedir ajustes; isso é parte normal do processo.
-*Pull requests* que violem as regras do projeto não serão incorporados.
+A maintainer will review your pull request. We may ask for changes; that is a normal part of the process.
+Pull requests that break the project rules will not be merged.
 
-## Licença das contribuições
+## License of contributions
 
-Ao enviar uma contribuição, você concorda que ela seja licenciada sob a [licença MIT](LICENSE) do projeto.
+By submitting a contribution, you agree that it is licensed under the project's [MIT license](LICENSE).
