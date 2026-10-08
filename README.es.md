@@ -57,6 +57,12 @@ directamente a los proveedores, cuando corresponda.
 2. Sigue el asistente: elige los agentes, inicia sesión y define el nivel de permiso.
 3. Escribe en la sala mencionando un agente, por ejemplo: `@claude explica la estructura de este proyecto`.
 
+## Comandos y atajos
+
+Todas las menciones, comandos, atajos, botones y ajustes — y cuándo usar cada uno — están en
+[docs/COMMANDS.es.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.es.md). Lo esencial: `@agente` llama a un agente, `@todos` a todos, `/detener`
+detiene al agente actual, `/recordar <texto>` guarda una memoria, `Ctrl+Alt+V` inicia la voz.
+
 ## Privacidad
 
 - Conversaciones, acciones, aprobaciones y adjuntos se guardan solo en `~/.orquestra/dados`, en tu computadora.

@@ -133,7 +133,7 @@ export async function activate(
     if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
       throw new Error('Nao foi possivel abrir navegador.');
   };
-  const executor = new ExecutorFerramentas(sala, raizes, abrir);
+  const executor = new ExecutorFerramentas(sala, raizes, abrir, join(pasta, 'sessoes'));
   const ponte = new PonteHttp((id, nome, args, sinal) => executor.executar(id, nome, args, sinal));
   await ponte.iniciar();
   const anexador = new Anexador(

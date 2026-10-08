@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.3
+
+- **Fixed: Claude could not use tools on the Partial and Full levels.** Recent Claude Code versions send an extra
+  field (`tool_use_id`) in permission requests, which the approval gate rejected with "unknown argument". The gate
+  now accepts the current format and ignores unknown fields, so future Claude Code updates do not lock tools again.
+- Claude can read images attached to the current message without an extra approval.
+- Tools from your own MCP servers (Figma, Supabase, GitHub, Gmail…) used by Claude now go through the approval
+  gate as external actions instead of being refused; names like delete/drop/destroy are treated as irreversible and
+  send/publish as publication.
+- Claude's internal planning tools (task list, plan mode, sub-agents) are no longer refused.
+- Clearer refusal messages that name the tool and the reason.
+- `/stop` (also `/parar`, `/detener`, `/stoppen`) stops the current agent.
+- New command reference in four languages: [docs/COMMANDS.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.md).
+
 ## 0.3.2
 
 - **English is now the native language** of the documentation, with Portuguese (Brazil), Spanish and German

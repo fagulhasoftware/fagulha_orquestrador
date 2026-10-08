@@ -30,11 +30,15 @@ function validarComando(comando: string): void {
   )
     throw new Error('Comando contem destino protegido ou conteudo invalido.');
 }
+// Claude Code internal tools that only plan or organize the session (no file, network or process effect).
+const FERRAMENTAS_INTERNAS = new Set(['TodoWrite', 'TodoRead', 'ExitPlanMode', 'Task', 'Agent', 'ToolSearch']);
+
 export class ExecutorFerramentas {
   constructor(
     private sala: Sala,
     private raizes: string[],
     private abrir: (url: string) => Promise<void>,
+    private pastaSessoes?: string,
   ) {}
   async executar(
     id: string,
@@ -55,11 +59,15 @@ export class ExecutorFerramentas {
     if (nome === 'aprovar') {
       const ferramenta = String(args.tool_name).replace(/^mcp__fagulha_orquestrador__/, '');
       if (String(args.tool_name).startsWith('mcp__fagulha_orquestrador__')) {
+        // Orquestrador tools run their own approval gate; here only their arguments are checked.
         try {
           const input = validarArgumentos(ferramenta, args.input ?? {});
           return { behavior: 'allow', updatedInput: input };
-        } catch {
-          /* so libera ferramentas conhecidas que farao seu proprio Portao */
+        } catch (e) {
+          return {
+            behavior: 'deny',
+            message: `Orquestrador tool ${ferramenta} rejected its arguments: ${e instanceof Error ? e.message : 'invalid arguments'}`,
+          };
         }
       }
       if (this.sala.config.nivel === 'manual')
@@ -73,7 +81,20 @@ export class ExecutorFerramentas {
         let categoria: CategoriaAcao,
           detalhe: string,
           critica = false;
-        if (ferramentaNativa === 'Bash') {
+        if (FERRAMENTAS_INTERNAS.has(ferramentaNativa)) {
+          // Planning/bookkeeping tools of the CLI itself: no effect outside the agent session.
+          return { behavior: 'allow', updatedInput: input };
+        } else if (/^mcp__[\w.-]+__[\w.-]+$/.test(ferramentaNativa)) {
+          // Tools from MCP servers configured by the user (Figma, Gmail, Supabase, GitHub...).
+          const nomeAcao = ferramentaNativa.split('__').slice(2).join('__').toLowerCase();
+          categoria = /(delete|remove|drop|destroy|purge|truncate|erase|wipe)/.test(nomeAcao)
+            ? 'irreversivel_externo'
+            : /(send|publish|post|reply|forward|invite|share|create_release|merge)/.test(nomeAcao)
+              ? 'publicacao'
+              : 'externo';
+          detalhe = `${ferramentaNativa} ${JSON.stringify(input).slice(0, 1500)}`;
+          critica = categoria === 'irreversivel_externo';
+        } else if (ferramentaNativa === 'Bash') {
           detalhe = String(input.command ?? '');
           if (!detalhe) throw new Error('Comando vazio.');
           validarComando(detalhe);
@@ -88,16 +109,23 @@ export class ExecutorFerramentas {
             categoria = 'rede_leitura';
           }
         } else {
-          const escrita = ['Write', 'Edit', 'MultiEdit'].includes(ferramentaNativa);
-          if (!escrita && !['Read', 'Glob', 'Grep', 'LS'].includes(ferramentaNativa))
-            throw new Error('Ferramenta nativa sem politica: use MCP.');
-          const caminho = String(input.file_path ?? input.path ?? this.sala.projeto ?? '.');
+          const escrita = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(ferramentaNativa);
+          if (!escrita && !['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(ferramentaNativa))
+            throw new Error(`Native tool ${ferramentaNativa} has no policy: use the Orquestrador MCP tools.`);
+          const caminho = String(input.file_path ?? input.notebook_path ?? input.path ?? this.sala.projeto ?? '.');
           const real = await caminhoReal(
             resolve(this.sala.projeto ?? process.cwd(), caminho),
             escrita,
           );
           const raizes = await Promise.all(this.raizes.map((r) => realpath(r)));
-          const workspace = raizes.some((r) => dentro(r, real));
+          // Images that Orquestrador prepared for this agent (attachments of the current message) count as
+          // project reads, so the agent can see them without an extra approval.
+          const imagemDaSala =
+            !escrita &&
+            !!this.pastaSessoes &&
+            /\.(png|jpe?g|webp|gif)$/i.test(real) &&
+            dentro(await realpath(this.pastaSessoes).catch(() => this.pastaSessoes!), real);
+          const workspace = imagemDaSala || raizes.some((r) => dentro(r, real));
           categoria = escrita
             ? workspace
               ? 'escrita_workspace'
@@ -120,11 +148,10 @@ export class ExecutorFerramentas {
           sinal,
         );
         return { behavior: 'allow', updatedInput: input };
-      } catch {
+      } catch (e) {
         return {
           behavior: 'deny',
-          message:
-            'Portao recusou a ferramenta nativa. Use MCP Orquestrador Fagulha para uma acao permitida.',
+          message: `Approval gate refused ${ferramentaNativa}${e instanceof Error && e.message ? `: ${e.message}` : ''}. Use the Orquestrador MCP tools for an allowed action.`,
         };
       }
     }

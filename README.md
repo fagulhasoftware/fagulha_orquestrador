@@ -67,6 +67,12 @@ anyone else.
 2. Follow the setup: choose your agents, sign in and pick a permission level.
 3. Write in the room mentioning an agent, for example: `@claude explain the structure of this project`.
 
+## Commands and shortcuts
+
+Every mention, chat command, keyboard shortcut, button and setting — and when to use each one — is listed in
+[docs/COMMANDS.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.md). The essentials: `@agent` calls an agent, `@todos` calls everyone, `/stop`
+stops the current agent, `/remember <text>` saves a memory, `Ctrl+Alt+V` starts voice input.
+
 ## Privacy
 
 - Conversations, actions, approvals and attachments are stored only in `~/.orquestra/dados`, on your computer.

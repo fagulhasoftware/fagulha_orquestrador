@@ -57,6 +57,12 @@ bezahlt die Anbieter direkt, falls Kosten anfallen.
 2. Folge dem Assistenten: Agenten auswählen, anmelden und Berechtigungsstufe festlegen.
 3. Schreibe im Raum und erwähne einen Agenten, zum Beispiel: `@claude erkläre die Struktur dieses Projekts`.
 
+## Befehle und Tastenkürzel
+
+Alle Erwähnungen, Chat-Befehle, Tastenkürzel, Schaltflächen und Einstellungen — und wann man sie verwendet — stehen in
+[docs/COMMANDS.de.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.de.md). Das Wichtigste: `@agent` ruft einen Agenten auf, `@todos` alle, `/stoppen`
+stoppt den aktuellen Agenten, `/merken <Text>` speichert eine Erinnerung, `Strg+Alt+V` startet die Spracheingabe.
+
 ## Datenschutz
 
 - Unterhaltungen, Aktionen, Freigaben und Anhänge werden nur in `~/.orquestra/dados` auf deinem Computer gespeichert.

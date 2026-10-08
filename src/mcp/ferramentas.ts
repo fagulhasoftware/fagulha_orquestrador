@@ -65,7 +65,7 @@ export const ferramentas = [
       'Portao de permissao. Ferramentas nativas sao recusadas; use as ferramentas do Orquestrador Fagulha.',
     inputSchema: {
       type: 'object',
-      properties: { tool_name: { type: 'string' }, input: { type: 'object' } },
+      properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },
       required: ['tool_name'],
       additionalProperties: false,
     },
@@ -154,8 +154,25 @@ export const ferramentas = [
   },
 ] as const;
 export type NomeFerramenta = (typeof ferramentas)[number]['name'];
+// The Claude Code permission prompt payload evolves between CLI versions (e.g. tool_use_id was added in
+// 2.1.x). Only tool_name and input matter to the approval gate: unknown fields are ignored (never forwarded),
+// and known aliases are accepted, so a CLI update does not lock every tool behind "unknown argument".
+export function normalizarAprovacao(entrada: unknown): { tool_name: string; input: Record<string, unknown> } {
+  if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada))
+    throw new ErroFerramenta('Ferramenta ou argumentos invalidos.');
+  const e = entrada as Record<string, unknown>;
+  const nome = e.tool_name ?? e.toolName ?? e.name;
+  if (typeof nome !== 'string' || !nome.trim() || nome.length > 300)
+    throw new ErroFerramenta('Argumento obrigatorio: tool_name');
+  const bruto = e.input ?? e.tool_input ?? e.toolInput ?? e.arguments ?? {};
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto))
+    throw new ErroFerramenta('Argumento invalido: input');
+  return { tool_name: nome, input: bruto as Record<string, unknown> };
+}
+
 export function validarArgumentos(nome: string, entrada: unknown): Record<string, unknown> {
   if (nome === 'perguntar_usuario') return esquemaPergunta.parse(entrada);
+  if (nome === 'aprovar') return normalizarAprovacao(entrada);
   const ferramenta = ferramentas.find((f) => f.name === nome);
   if (entrada == null && ferramenta && !('required' in ferramenta.inputSchema)) entrada = {};
   if (!ferramenta || !entrada || typeof entrada !== 'object' || Array.isArray(entrada))

@@ -587,7 +587,8 @@ export class Sala {
   }
   enviar(texto: string, anexos: string[]): void {
     if (this.trocando) throw new Error('Aguarde a troca de chat terminar.');
-    if (texto.trim() === '/parar') {
+    // Stop command in every supported language.
+    if (['/parar', '/stop', '/detener', '/stoppen'].includes(texto.trim().toLowerCase())) {
       this.parar();
       return;
     }

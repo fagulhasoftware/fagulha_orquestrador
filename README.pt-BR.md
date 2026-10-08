@@ -66,6 +66,12 @@ outra pessoa.
 2. Siga o assistente: escolha os agentes, faça login e defina o nível de permissão.
 3. Escreva na sala mencionando um agente, por exemplo: `@claude explique a estrutura deste projeto`.
 
+## Comandos e atalhos
+
+Todas as menções, comandos do chat, atalhos de teclado, botões e configurações — e quando usar cada um — estão em
+[docs/COMMANDS.pt-BR.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.pt-BR.md). O essencial: `@agente` aciona um agente, `@todos` aciona todos,
+`/parar` interrompe o agente atual, `/lembrar <texto>` guarda uma memória, `Ctrl+Alt+V` inicia a voz.
+
 ## Privacidade
 
 - Conversas, ações, aprovações e anexos ficam somente em `~/.orquestra/dados`, no seu computador.
