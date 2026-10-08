@@ -2,7 +2,7 @@
 // Alteracoes afetam a interface e a extensao: descreva o impacto no pull request (ver CONTRIBUTING.md).
 // Regra: o webview nunca recebe segredos nem caminhos de arquivos de credenciais.
 
-export const VERSAO_PROTOCOLO = 5; // v5: estagio do agente, perguntas guiadas, voz natural (0.3.0)
+export const VERSAO_PROTOCOLO = 6; // v6: integrations (MCP gateway) and skills (0.4.0)
 
 // ---------- dominio ----------
 
@@ -206,6 +206,8 @@ export interface EstadoSala {
   sala: { id: string; projeto: string | null; titulo: string };  // sala da janela (pasta); id interno
   chat: ResumoChat;             // v4: chat aberto nesta janela
   memoriasAtivas: number;       // v4: quantas memorias (global + deste projeto) estao sendo enviadas aos agentes
+  integracoesConectadas?: number; // v6: connected and active integrations (header badge)
+  skillsAtivas?: number;          // v6: active skills
   configuracao: Configuracao;
   agentes: Agente[];
   mensagens: Mensagem[];      // ultimas N; mais antigas via 'carregarAnteriores'
@@ -275,6 +277,53 @@ export interface EstadoVoz {
   };
 }
 
+// ---------- integrations and skills (v6, 0.4.0) ----------
+// Orquestrador is the single MCP gateway of the room: it connects once to each integration and exposes its tools
+// to every agent with the prefix `<id>__<tool>`. Every call goes through the approval gate. Tokens and secrets live
+// only in SecretStorage and never reach the webview.
+export type AutenticacaoIntegracao = 'oauth' | 'oauth_cliente_proprio' | 'token' | 'nenhuma';
+export type TransporteIntegracao = 'http' | 'sse' | 'stdio';
+export type EstadoIntegracao = 'desconectada' | 'conectando' | 'conectada' | 'erro' | 'requer_reconexao';
+
+/** Extra field the user fills when connecting (client ID, tenant, project ref, read-only toggle...). */
+export interface CampoIntegracao {
+  chave: string;                 // e.g. 'clientId', 'clientSecret', 'tenantId', 'projectRef', 'readOnly', 'token'
+  rotulo: string;                // English source text; the UI translates it
+  tipo: 'texto' | 'segredo' | 'booleano' | 'url';
+  obrigatorio: boolean;
+  ajuda?: string;                // English source text
+}
+
+export interface Integracao {
+  id: string;                    // catalog id ('figma', 'github', 'gmail'...) or 'custom-<slug>'
+  nome: string;                  // display name ('Figma', 'GitHub'...)
+  descricao: string;             // English source text
+  origem: 'catalogo' | 'personalizada';
+  oficial: boolean;              // vendor-published server (catalog) — custom ones are always false
+  transporte: TransporteIntegracao;
+  endpoint: string;              // URL or command shown to the user (never with credentials)
+  autenticacao: AutenticacaoIntegracao;
+  campos: CampoIntegracao[];     // what the connect form asks
+  requisitos: string[];          // English source texts, e.g. 'Google Workspace Developer Preview access'
+  documentacao?: string;         // vendor docs URL
+  preview?: boolean;             // vendor marks the server as preview / not for production
+  estado: EstadoIntegracao;
+  ativa: boolean;                // tools offered to agents when connected and active
+  conta?: string;                // masked account / workspace, when the server tells
+  ferramentas: { nome: string; descricao?: string; categoria: CategoriaAcao }[];  // after connecting
+  mensagem?: string;             // last error or status, English source text or server text
+}
+
+export interface Skill {
+  nome: string;                  // folder name / frontmatter name
+  descricao: string;             // frontmatter description
+  origem: 'pasta' | 'zip' | 'github';
+  fonte?: string;                // original path or repository URL (no credentials)
+  ativa: boolean;
+  bytes: number;
+  instaladaEm: string;           // ISO
+}
+
 // ---------- webview -> host ----------
 
 export type DoWebview =
@@ -314,6 +363,19 @@ export type DoWebview =
   | { tipo: 'leituraNuvemRemover' }
   | { tipo: 'responderPergunta'; id: string; respostas: RespostaItem[] }  // v5
   | { tipo: 'cancelarPergunta'; id: string }
+  // v6: integrations
+  | { tipo: 'listarIntegracoes' }
+  | { tipo: 'conectarIntegracao'; id: string; valores: Record<string, string | boolean> } // secrets travel once, never echoed
+  | { tipo: 'desconectarIntegracao'; id: string }
+  | { tipo: 'alternarIntegracao'; id: string; ativa: boolean }
+  | { tipo: 'adicionarIntegracaoPersonalizada'; nome: string; transporte: TransporteIntegracao; endpoint: string; autenticacao: AutenticacaoIntegracao }
+  | { tipo: 'removerIntegracao'; id: string }   // custom ones only; catalog ones are disconnected instead
+  // v6: skills
+  | { tipo: 'listarSkills' }
+  | { tipo: 'importarSkill'; origem: 'pasta' | 'zip' | 'github'; url?: string } // host opens the file/folder picker; url for github
+  | { tipo: 'alternarSkill'; nome: string; ativa: boolean }
+  | { tipo: 'removerSkill'; nome: string }
+  | { tipo: 'verSkill'; nome: string }
   | { tipo: 'lerMensagem'; id: string }                         // le uma fala especifica
   | { tipo: 'pararLeitura' }
   | { tipo: 'abrirLink'; url: string }                         // passa pelo Portao (categoria navegador)
@@ -342,6 +404,10 @@ export type DoHost =
   | { tipo: 'fase'; agente: string; fase: FaseAgente }          // v5
   | { tipo: 'pergunta'; pergunta: PerguntaAgente }             // v5
   | { tipo: 'perguntaResolvida'; id: string; situacao: 'respondida' | 'cancelada' | 'expirada' }
+  | { tipo: 'integracoes'; lista: Integracao[] }                 // v6
+  | { tipo: 'integracao'; integracao: Integracao }               // v6: one item changed
+  | { tipo: 'skills'; lista: Skill[] }                           // v6
+  | { tipo: 'skill'; nome: string; conteudo: string }            // v6: SKILL.md content for preview (max 256 KB)
   | { tipo: 'anexo'; anexo: Anexo }
   | { tipo: 'anexoRemovido'; id: string }
   | { tipo: 'contexto'; contexto: ContextoImportado }
