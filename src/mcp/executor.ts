@@ -10,6 +10,7 @@ import { validarMemoria } from '../core/memoria';
 import { irreversivelExterno } from '../permissions/irreversivel';
 import { lerImagem, eConteudoImagem } from '../attachments/imagem';
 import { ErroFerramenta } from './erros';
+import type { Integracoes } from '../integrations/gestor';
 export function comandoCritico(comando: string): boolean {
   if (
     /\b(rm|rmdir|del|erase|Remove-Item|format|mkfs|diskpart|shutdown|reboot|drop|truncate)\b|\bgit\s+(push|reset|clean)\b|\b(npm|pnpm|yarn)\s+publish\b|\b(curl|wget|Invoke-WebRequest)\b|[;&|`<>\r\n]|\$\(/i.test(
@@ -31,7 +32,14 @@ function validarComando(comando: string): void {
     throw new Error('Comando contem destino protegido ou conteudo invalido.');
 }
 // Claude Code internal tools that only plan or organize the session (no file, network or process effect).
-const FERRAMENTAS_INTERNAS = new Set(['TodoWrite', 'TodoRead', 'ExitPlanMode', 'Task', 'Agent', 'ToolSearch']);
+const FERRAMENTAS_INTERNAS = new Set([
+  'TodoWrite',
+  'TodoRead',
+  'ExitPlanMode',
+  'Task',
+  'Agent',
+  'ToolSearch',
+]);
 
 export class ExecutorFerramentas {
   constructor(
@@ -39,6 +47,7 @@ export class ExecutorFerramentas {
     private raizes: string[],
     private abrir: (url: string) => Promise<void>,
     private pastaSessoes?: string,
+    private integracoes?: Integracoes,
   ) {}
   async executar(
     id: string,
@@ -56,6 +65,23 @@ export class ExecutorFerramentas {
         throw new Error('Execucao encerrada ao trocar de chat.');
       await this.sala.chats.obter(chatId);
     };
+    if (/^[a-z][a-z0-9-]*__[A-Za-z0-9_-]+$/.test(nome)) {
+      if (!this.integracoes) throw new ErroFerramenta('Portal de integracoes indisponivel.');
+      const resultado = await this.integracoes.executar(
+        id,
+        agente.modo,
+        nome,
+        args,
+        sinal,
+        confirmarChat,
+      );
+      this.sala.mensagem(
+        agente.nick,
+        `Resultado ${nome}: dado externo recebido${resultado.isError ? ' com erro' : ''}.`,
+        'acao',
+      );
+      return resultado;
+    }
     if (nome === 'aprovar') {
       const ferramenta = String(args.tool_name).replace(/^mcp__fagulha_orquestrador__/, '');
       if (String(args.tool_name).startsWith('mcp__fagulha_orquestrador__')) {
@@ -110,9 +136,16 @@ export class ExecutorFerramentas {
           }
         } else {
           const escrita = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(ferramentaNativa);
-          if (!escrita && !['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(ferramentaNativa))
-            throw new Error(`Native tool ${ferramentaNativa} has no policy: use the Orquestrador MCP tools.`);
-          const caminho = String(input.file_path ?? input.notebook_path ?? input.path ?? this.sala.projeto ?? '.');
+          if (
+            !escrita &&
+            !['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(ferramentaNativa)
+          )
+            throw new Error(
+              `Native tool ${ferramentaNativa} has no policy: use the Orquestrador MCP tools.`,
+            );
+          const caminho = String(
+            input.file_path ?? input.notebook_path ?? input.path ?? this.sala.projeto ?? '.',
+          );
           const real = await caminhoReal(
             resolve(this.sala.projeto ?? process.cwd(), caminho),
             escrita,

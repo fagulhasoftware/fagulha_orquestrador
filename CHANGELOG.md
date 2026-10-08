@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — Phase A (local preparation, not published)
+
+- Complete integration catalog and token connections for GitHub, Supabase and custom HTTP/SSE MCP servers; local stdio servers are also supported.
+- A shared MCP gateway offers prefixed tools to Claude, Codex, Gemini and API agents. Calls go through the approval gate with categories derived from names and MCP annotations.
+- Tokens are validated with `tools/list` before saving to SecretStorage; global configuration contains no credentials. Disconnecting deletes the local credential.
+- Enable/disable integrations, reconnect, emit v6 events and update room counters. External results remain explicitly untrusted, including images and structured responses.
+- Claude's v6 interface is connected to the host. OAuth and skills remain planned for phases B/C; Marketplace publication requires those phases and real Figma/GitHub validation.
+
 ## 0.3.3
 
 - **Fixed: Claude could not use tools on the Partial and Full levels.** Recent Claude Code versions send an extra

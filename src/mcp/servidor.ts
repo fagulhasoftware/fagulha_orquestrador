@@ -6,14 +6,29 @@ import { chamarPonte, FalhaPonte } from './cliente-ponte';
 import { diagnosticos } from './diagnostico';
 import { eConteudoImagem } from '../attachments/imagem';
 const servidor = new Server(
-  { name: 'fagulha_orquestrador', version: '0.3.2' },
+  { name: 'fagulha_orquestrador', version: '0.4.0' },
   { capabilities: { tools: {} } },
 );
-servidor.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ferramentas }));
+servidor.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    ...ferramentas,
+    ...((await chamarPonte(
+      '__ferramentas_listar',
+      {},
+    )) as import('@modelcontextprotocol/sdk/types.js').Tool[]),
+  ],
+}));
 servidor.setRequestHandler(CallToolRequestSchema, async (pedido) => {
   try {
     const resultado = await chamarPonte(pedido.params.name, pedido.params.arguments ?? {});
-    if (eConteudoImagem(resultado)) return { content: resultado.conteudoMcp };
+    if (eConteudoImagem(resultado)) {
+      const portal = resultado as import('../integrations/tipos').ResultadoIntegracao;
+      return {
+        content: portal.conteudoMcp,
+        isError: portal.isError,
+        structuredContent: portal.structuredContent,
+      };
+    }
     return { content: [{ type: 'text' as const, text: JSON.stringify(resultado) }] };
   } catch (e) {
     return {

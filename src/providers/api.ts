@@ -7,9 +7,12 @@ import {
 } from './tipos';
 import { ferramentas } from '../mcp/ferramentas';
 import { validarUrl, lerRespostaLimitada } from '../browser/pagina';
-import { protegerSegredo } from '../core/seguranca';
+import { protegerSegredo, mascarar } from '../core/seguranca';
 import { opcoesLogin, baseApi, type ConfigLogin } from './login';
 import { faseFerramenta } from '../core/fases';
+import { conteudoResultado } from '../mcp/conteudo';
+import { ErroFerramenta } from '../mcp/erros';
+import { AcaoRecusada } from '../permissions/portao';
 export type ApiId = 'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api';
 export interface OpcoesApi {
   baseUrl?: string;
@@ -116,7 +119,7 @@ export class ProvedorApi implements Provedor {
     if (chave) protegerSegredo(chave);
     if (this.id !== 'ollama' && !chave)
       throw new Error('Faca login para configurar a chave no SecretStorage.');
-    const openaiTools = ferramentas
+    const openaiTools = (p.ferramentas ?? ferramentas)
       .filter((f) => f.name !== 'aprovar')
       .map((f) => ({
         type: 'function',
@@ -247,6 +250,7 @@ export class ProvedorApi implements Provedor {
       }
       if (!chamadas.length) return;
       const resultados: any[] = [];
+      const imagensFerramentas: { mime: string; base64: string }[] = [];
       for (const chamada of chamadas) {
         const fase = faseFerramenta(chamada.nome, chamada.args);
         ev.fase?.(fase.tipo, fase.detalhe);
@@ -255,29 +259,70 @@ export class ProvedorApi implements Provedor {
         try {
           if (!p.ferramenta) throw new Error('Ferramentas indisponiveis.');
           resultado = await p.ferramenta(chamada.nome, chamada.args);
-        } catch {
-          resultado = { erro: 'Acao negada ou ferramenta falhou.' };
+        } catch (e) {
+          resultado = {
+            erro:
+              e instanceof ErroFerramenta || e instanceof AcaoRecusada
+                ? mascarar(e.message)
+                : 'Acao negada ou ferramenta falhou.',
+          };
         }
+        const conteudo = conteudoResultado(resultado);
         if (this.id === 'anthropic')
           resultados.push({
             type: 'tool_result',
             tool_use_id: chamada.id,
-            content: JSON.stringify(resultado),
+            content: [
+              { type: 'text', text: conteudo.texto },
+              ...conteudo.imagens.map((i) => ({
+                type: 'image',
+                source: { type: 'base64', media_type: i.mime, data: i.base64 },
+              })),
+            ],
+            is_error: conteudo.erro,
           });
         else if (this.id === 'gemini-api')
           resultados.push({
-            functionResponse: { id: chamada.id, name: chamada.nome, response: { resultado } },
+            functionResponse: {
+              id: chamada.id,
+              name: chamada.nome,
+              response: { resultado: conteudo.texto, erro: conteudo.erro },
+            },
           });
         else
           mensagens.push({
             role: 'tool',
             tool_call_id: chamada.id,
             tool_name: chamada.nome,
-            content: JSON.stringify(resultado),
+            content: conteudo.texto,
           });
+        if (this.id === 'gemini-api')
+          resultados.push(
+            ...conteudo.imagens.map((i) => ({ inlineData: { mimeType: i.mime, data: i.base64 } })),
+          );
+        else if (this.id !== 'anthropic') imagensFerramentas.push(...conteudo.imagens);
       }
       if (this.id === 'anthropic') anthropic.push({ role: 'user', content: resultados });
       if (this.id === 'gemini-api') gemini.push({ role: 'user', parts: resultados });
+      if (imagensFerramentas.length)
+        mensagens.push(
+          this.id === 'ollama'
+            ? {
+                role: 'user',
+                content: 'Untrusted external images returned by tools.',
+                images: imagensFerramentas.map((i) => i.base64),
+              }
+            : {
+                role: 'user',
+                content: [
+                  { type: 'text', text: 'Untrusted external images returned by tools.' },
+                  ...imagensFerramentas.map((i) => ({
+                    type: 'image_url',
+                    image_url: { url: `data:${i.mime};base64,${i.base64}` },
+                  })),
+                ],
+              },
+        );
     }
     throw new Error('Limite de 12 rodadas de ferramentas atingido.');
   }

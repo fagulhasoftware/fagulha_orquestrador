@@ -5,6 +5,40 @@ const id = z.string().min(1).max(200);
 const vazio = (tipo: string) => z.object({ tipo: z.literal(tipo) }).strict();
 const modo = z.enum(['leitura', 'escrita', 'leitura_escrita']);
 const schemas = [
+  ...['listarIntegracoes', 'listarSkills'].map(vazio),
+  ...['desconectarIntegracao', 'removerIntegracao'].map((tipo) =>
+    z.object({ tipo: z.literal(tipo), id }).strict(),
+  ),
+  z
+    .object({
+      tipo: z.literal('conectarIntegracao'),
+      id,
+      valores: z
+        .record(z.union([z.string().max(8192), z.boolean()]))
+        .refine((v) => Object.keys(v).length <= 20),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('alternarIntegracao'), id, ativa: z.boolean() }).strict(),
+  z
+    .object({
+      tipo: z.literal('adicionarIntegracaoPersonalizada'),
+      nome: z.string().trim().min(1).max(80),
+      transporte: z.enum(['http', 'sse', 'stdio']),
+      endpoint: z.string().min(1).max(2048),
+      autenticacao: z.enum(['oauth', 'oauth_cliente_proprio', 'token', 'nenhuma']),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('importarSkill'),
+      origem: z.enum(['pasta', 'zip', 'github']),
+      url: z.string().url().max(2048).optional(),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('alternarSkill'), nome: id, ativa: z.boolean() }).strict(),
+  ...['removerSkill', 'verSkill'].map((tipo) =>
+    z.object({ tipo: z.literal(tipo), nome: id }).strict(),
+  ),
   ...[
     'pronto',
     'parar',

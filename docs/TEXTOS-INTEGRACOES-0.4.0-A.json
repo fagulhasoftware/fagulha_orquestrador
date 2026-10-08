@@ -1,0 +1,158 @@
+{
+  "fase": "0.4.0-a",
+  "idiomaFonte": "en",
+  "textos": [
+    "Calendars and events.",
+    "Enter a stdio command.",
+    "External MCP call failed. Connect again.",
+    "Files and search.",
+    "Gmail creates drafts; it does not send email.",
+    "Google Developer Preview; user-owned client ID/secret and enabled MCP APIs. OAuth is planned for phase 0.4.0-b.",
+    "Incomplete quotes in the stdio command.",
+    "Integration unavailable. Connect again.",
+    "Leave empty to keep the saved project scope.",
+    "Microsoft preview; Microsoft 365 Copilot and a user-owned Entra ID app. OAuth is planned for phase 0.4.0-b. The endpoint depends on the tenant.",
+    "OAuth is planned for phase 0.4.0-b.",
+    "Personal access token",
+    "Personal access token with minimum permissions for the selected repositories. Repository writes count as publishing.",
+    "Personal access token; optional project scope and read-only mode.",
+    "Project reference (optional)",
+    "Projects, database and development tools.",
+    "Provide an HTTP/SSE URL or a stdio command. OAuth is planned for phase 0.4.0-b.",
+    "Read designs and edit the canvas.",
+    "Read only",
+    "Read-only access is enforced by the server.",
+    "Repositories, issues and pull requests.",
+    "Server not verified by Orquestrador.",
+    "Skills are planned for phase 0.4.0-c.",
+    "Unable to connect to the MCP server. Check authentication, endpoint and timeout.",
+    "Use Add integration to configure a custom server.",
+    "Work IQ integration.",
+    "Workspace content and pages."
+  ],
+  "catalogo": [
+    {
+      "id": "figma",
+      "descricao": "Read designs and edit the canvas.",
+      "requisitos": [
+        "OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "github",
+      "descricao": "Repositories, issues and pull requests.",
+      "requisitos": [
+        "Personal access token with minimum permissions for the selected repositories. Repository writes count as publishing."
+      ],
+      "campos": [
+        {
+          "chave": "token",
+          "rotulo": "Personal access token",
+          "tipo": "segredo",
+          "obrigatorio": true
+        }
+      ]
+    },
+    {
+      "id": "supabase",
+      "descricao": "Projects, database and development tools.",
+      "requisitos": [
+        "Personal access token; optional project scope and read-only mode."
+      ],
+      "campos": [
+        {
+          "chave": "token",
+          "rotulo": "Personal access token",
+          "tipo": "segredo",
+          "obrigatorio": true
+        },
+        {
+          "chave": "projectRef",
+          "rotulo": "Project reference (optional)",
+          "tipo": "texto",
+          "obrigatorio": false,
+          "ajuda": "Leave empty to keep the saved project scope."
+        },
+        {
+          "chave": "readOnly",
+          "rotulo": "Read only",
+          "tipo": "booleano",
+          "obrigatorio": false,
+          "ajuda": "Read-only access is enforced by the server."
+        }
+      ]
+    },
+    {
+      "id": "notion",
+      "descricao": "Workspace content and pages.",
+      "requisitos": [
+        "OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "gmail",
+      "descricao": "Gmail creates drafts; it does not send email.",
+      "requisitos": [
+        "Google Developer Preview; user-owned client ID/secret and enabled MCP APIs. OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "google-drive",
+      "descricao": "Files and search.",
+      "requisitos": [
+        "Google Developer Preview; user-owned client ID/secret and enabled MCP APIs. OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "google-calendar",
+      "descricao": "Calendars and events.",
+      "requisitos": [
+        "Google Developer Preview; user-owned client ID/secret and enabled MCP APIs. OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "m365-mail",
+      "descricao": "Work IQ integration.",
+      "requisitos": [
+        "Microsoft preview; Microsoft 365 Copilot and a user-owned Entra ID app. OAuth is planned for phase 0.4.0-b. The endpoint depends on the tenant."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "m365-calendar",
+      "descricao": "Work IQ integration.",
+      "requisitos": [
+        "Microsoft preview; Microsoft 365 Copilot and a user-owned Entra ID app. OAuth is planned for phase 0.4.0-b. The endpoint depends on the tenant."
+      ],
+      "campos": [],
+      "mensagem": "OAuth is planned for phase 0.4.0-b."
+    },
+    {
+      "id": "personalizada",
+      "descricao": "Server not verified by Orquestrador.",
+      "requisitos": [
+        "Provide an HTTP/SSE URL or a stdio command. OAuth is planned for phase 0.4.0-b."
+      ],
+      "campos": [
+        {
+          "chave": "token",
+          "rotulo": "Personal access token",
+          "tipo": "segredo",
+          "obrigatorio": true
+        }
+      ],
+      "mensagem": "Use Add integration to configure a custom server."
+    }
+  ]
+}

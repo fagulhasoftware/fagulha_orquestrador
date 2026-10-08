@@ -19,6 +19,7 @@ export class PonteHttp {
       args: Record<string, unknown>,
       sinal: AbortSignal,
     ) => Promise<unknown>,
+    private listar?: (agente: string, sinal: AbortSignal) => Promise<unknown>,
   ) {}
   async iniciar(): Promise<void> {
     this.servidor = createServer(async (req, res) => {
@@ -83,7 +84,12 @@ export class PonteHttp {
             responder(408, { codigo: 'tempo_esgotado' });
           }, 1860000);
         }
-        const resultado = await this.chamar(capacidade.agente, pedido.nome, args, sinal);
+        const resultado =
+          pedido.nome === '__ferramentas_listar'
+            ? this.listar
+              ? await this.listar(capacidade.agente, sinal)
+              : []
+            : await this.chamar(capacidade.agente, pedido.nome, args, sinal);
         responder(200, { resultado });
       } catch (e) {
         if (e instanceof AcaoRecusada) {

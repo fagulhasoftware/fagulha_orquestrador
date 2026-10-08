@@ -65,7 +65,11 @@ export const ferramentas = [
       'Portao de permissao. Ferramentas nativas sao recusadas; use as ferramentas do Orquestrador Fagulha.',
     inputSchema: {
       type: 'object',
-      properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },
+      properties: {
+        tool_name: { type: 'string' },
+        input: { type: 'object' },
+        tool_use_id: { type: 'string' },
+      },
       required: ['tool_name'],
       additionalProperties: false,
     },
@@ -157,7 +161,10 @@ export type NomeFerramenta = (typeof ferramentas)[number]['name'];
 // The Claude Code permission prompt payload evolves between CLI versions (e.g. tool_use_id was added in
 // 2.1.x). Only tool_name and input matter to the approval gate: unknown fields are ignored (never forwarded),
 // and known aliases are accepted, so a CLI update does not lock every tool behind "unknown argument".
-export function normalizarAprovacao(entrada: unknown): { tool_name: string; input: Record<string, unknown> } {
+export function normalizarAprovacao(entrada: unknown): {
+  tool_name: string;
+  input: Record<string, unknown>;
+} {
   if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada))
     throw new ErroFerramenta('Ferramenta ou argumentos invalidos.');
   const e = entrada as Record<string, unknown>;
@@ -171,6 +178,12 @@ export function normalizarAprovacao(entrada: unknown): { tool_name: string; inpu
 }
 
 export function validarArgumentos(nome: string, entrada: unknown): Record<string, unknown> {
+  if (nome === '__ferramentas_listar' || /^[a-z][a-z0-9-]*__[A-Za-z0-9_-]+$/.test(nome)) {
+    if (entrada == null) return {};
+    if (typeof entrada !== 'object' || Array.isArray(entrada))
+      throw new ErroFerramenta('Argumentos MCP devem ser um objeto.');
+    return entrada as Record<string, unknown>;
+  }
   if (nome === 'perguntar_usuario') return esquemaPergunta.parse(entrada);
   if (nome === 'aprovar') return normalizarAprovacao(entrada);
   const ferramenta = ferramentas.find((f) => f.name === nome);

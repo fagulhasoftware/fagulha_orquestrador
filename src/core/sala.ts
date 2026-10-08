@@ -73,6 +73,8 @@ interface Persistida {
   ultimo_chat?: string;
 }
 export class Sala {
+  integracoesConectadas = 0;
+  skillsAtivas = 0;
   readonly provedores = new Map<string, Provedor>();
   readonly mensagens: Mensagem[] = [];
   readonly anexos = new Map<string, AnexoArmazenado>();
@@ -548,6 +550,8 @@ export class Sala {
       sala: { id: this.id, projeto: this.projeto, titulo: this.titulo },
       chat: resumoChat(this.chat, this.projeto),
       memoriasAtivas: memoriasDoProjeto(this.memoriasLista, this.projeto).length,
+      integracoesConectadas: this.integracoesConectadas,
+      skillsAtivas: this.skillsAtivas,
       configuracao: this.config,
       agentes: this.agentes,
       mensagens: this.mensagens.slice(-200),

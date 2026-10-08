@@ -12,6 +12,7 @@ export interface PonteSessao {
   diretorio: string;
 }
 export interface PedidoExecucao {
+  ferramentas?: import('@modelcontextprotocol/sdk/types.js').Tool[];
   prompt: string;
   projeto: string;
   modo: ModoAgente;

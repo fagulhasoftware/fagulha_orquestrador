@@ -17,6 +17,10 @@ import type { Provedor } from './providers/tipos';
 import { carregarManifestos, lerManifesto, criarProvedorManifesto } from './providers/manifestos';
 import { PonteHttp } from './mcp/ponte';
 import { ExecutorFerramentas } from './mcp/executor';
+import { Integracoes } from './integrations/gestor';
+import { mensagemIntegracao } from './integrations/mensagens';
+import { ferramentas } from './mcp/ferramentas';
+import type { RegistroIntegracao } from './integrations/tipos';
 import { Anexador } from './attachments/pipeline';
 import { imagensNativas } from './attachments/nativas';
 import { lerImagem } from './attachments/imagem';
@@ -133,8 +137,35 @@ export async function activate(
     if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
       throw new Error('Nao foi possivel abrir navegador.');
   };
-  const executor = new ExecutorFerramentas(sala, raizes, abrir, join(pasta, 'sessoes'));
-  const ponte = new PonteHttp((id, nome, args, sinal) => executor.executar(id, nome, args, sinal));
+  const views = new Set<vscode.Webview>();
+  const integracoes = new Integracoes(
+    {
+      ler: async () =>
+        (await storage.obter<RegistroIntegracao[]>('globais', '', 'integracoes')) ?? [],
+      salvar: async (itens) => storage.gravar('globais', '', 'integracoes', itens),
+    },
+    context.secrets,
+    sala.portao,
+    (e) => {
+      sala.integracoesConectadas = integracoes
+        .listar()
+        .filter((r) => r.estado === 'conectada' && r.ativa).length;
+      for (const v of views) void v.postMessage(e);
+      sala.estadoCompleto();
+    },
+  );
+  await integracoes.iniciar();
+  const executor = new ExecutorFerramentas(
+    sala,
+    raizes,
+    abrir,
+    join(pasta, 'sessoes'),
+    integracoes,
+  );
+  const ponte = new PonteHttp(
+    (id, nome, args, sinal) => executor.executar(id, nome, args, sinal),
+    () => integracoes.ferramentas(),
+  );
   await ponte.iniciar();
   const anexador = new Anexador(
     join(pasta, 'anexos'),
@@ -211,6 +242,12 @@ export async function activate(
       return {
         regras,
         pedido: {
+          ferramentas: [
+            ...(JSON.parse(
+              JSON.stringify(ferramentas),
+            ) as import('@modelcontextprotocol/sdk/types.js').Tool[]),
+            ...(await integracoes.ferramentas()),
+          ],
           ponte: {
             url: capacidade.url,
             token: capacidade.token,
@@ -233,7 +270,6 @@ export async function activate(
       throw e;
     }
   };
-  const views = new Set<vscode.Webview>();
   const broadcast = sala.observar((e) => {
     for (const v of views) void v.postMessage(e);
     if (e.tipo === 'mensagem') voz.mensagem(e.mensagem);
@@ -309,12 +345,35 @@ export async function activate(
           typeof entrada.chave === 'string'
         )
           protegerSegredo(entrada.chave);
+        if (
+          entrada?.tipo === 'conectarIntegracao' &&
+          entrada.valores &&
+          typeof entrada.valores === 'object'
+        )
+          for (const [k, v] of Object.entries(entrada.valores))
+            if (/token|secret|password/i.test(k) && typeof v === 'string') protegerSegredo(v);
         const m = validarMensagem(entrada);
         if (m.tipo === 'pronto') {
           await sala.sincronizar();
           await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
           for (const progresso of login.progresso())
             await webview.postMessage({ tipo: 'login', progresso } satisfies DoHost);
+          await webview.postMessage({
+            tipo: 'integracoes',
+            lista: integracoes.listar(),
+          } satisfies DoHost);
+          await webview.postMessage({ tipo: 'skills', lista: [] } satisfies DoHost);
+          return;
+        }
+        if (
+          !vscode.workspace.isTrusted &&
+          (m.tipo === 'listarIntegracoes' || m.tipo === 'listarSkills')
+        ) {
+          await webview.postMessage(
+            m.tipo === 'listarIntegracoes'
+              ? { tipo: 'integracoes', lista: integracoes.listar() }
+              : { tipo: 'skills', lista: [] },
+          );
           return;
         }
         if (
@@ -353,6 +412,12 @@ export async function activate(
           throw new Error(
             'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
           );
+        if (
+          await mensagemIntegracao(integracoes, m, (e) => {
+            for (const v of views) void v.postMessage(e);
+          })
+        )
+          return;
         switch (m.tipo) {
           case 'responderPergunta':
             sala.perguntas.responder(m.id, m.respostas);
@@ -679,6 +744,7 @@ export async function activate(
     broadcast();
     await sala.esperar();
     await ponte.finalizar();
+    await integracoes.finalizar();
     await storage.finalizar();
   };
   context.subscriptions.push({
