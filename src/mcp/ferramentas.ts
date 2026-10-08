@@ -1,8 +1,53 @@
+import { esquemaPergunta } from '../core/perguntas';
 export const ferramentas = [
+  {
+    name: 'perguntar_usuario',
+    description:
+      'Perguntar ao usuario com opcoes sugeridas e aguardar sua resposta na sala. Nao e uma aprovacao de acao.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        titulo: { type: 'string', maxLength: 500 },
+        perguntas: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'pergunta', 'opcoes'],
+            properties: {
+              id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,80}$' },
+              pergunta: { type: 'string', minLength: 1, maxLength: 500 },
+              multipla: { type: 'boolean' },
+              permiteTexto: { type: 'boolean' },
+              opcoes: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 6,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['rotulo'],
+                  properties: {
+                    rotulo: { type: 'string', minLength: 1, maxLength: 500 },
+                    descricao: { type: 'string', maxLength: 500 },
+                    recomendada: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      required: ['perguntas'],
+    },
+  },
   {
     name: 'memoria_propor',
     description:
-      'Propor fato duravel ou preferencia. So guarda apos aprovacao individual do usuario; nunca envie segredos.',
+      'Propor fato duravel ou preferencia. Total salva automaticamente; outros niveis pedem aprovacao individual. Nunca envie segredos.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -66,7 +111,7 @@ export const ferramentas = [
   },
   {
     name: 'arquivo_escrever',
-    description: 'Escrever arquivo pelo Portao. Sobrescrita pede aprovacao critica.',
+    description: 'Escrever arquivo pelo Portao. Sobrescrita pede aprovacao fora do Total.',
     inputSchema: {
       type: 'object',
       properties: { caminho: { type: 'string' }, texto: { type: 'string', maxLength: 2000000 } },
@@ -76,7 +121,8 @@ export const ferramentas = [
   },
   {
     name: 'comando_executar',
-    description: 'Executar comando de shell com aprovacao individual, timeout e limite de saida.',
+    description:
+      'Executar shell com timeout e limite de saida. No Total, somente comandos irreversiveis externos conhecidos pedem confirmacao.',
     inputSchema: {
       type: 'object',
       properties: { comando: { type: 'string', maxLength: 4000 } },
@@ -107,6 +153,7 @@ export const ferramentas = [
 ] as const;
 export type NomeFerramenta = (typeof ferramentas)[number]['name'];
 export function validarArgumentos(nome: string, entrada: unknown): Record<string, unknown> {
+  if (nome === 'perguntar_usuario') return esquemaPergunta.parse(entrada);
   const ferramenta = ferramentas.find((f) => f.name === nome);
   if (!ferramenta || !entrada || typeof entrada !== 'object' || Array.isArray(entrada))
     throw new Error('Ferramenta ou argumentos invalidos.');

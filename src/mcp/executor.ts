@@ -7,6 +7,7 @@ import { lerPagina, validarUrl } from '../browser/pagina';
 import { rodar } from '../providers/processo';
 import type { CategoriaAcao } from '../shared/protocolo';
 import { validarMemoria } from '../core/memoria';
+import { irreversivelExterno } from '../permissions/irreversivel';
 export function comandoCritico(comando: string): boolean {
   if (
     /\b(rm|rmdir|del|erase|Remove-Item|format|mkfs|diskpart|shutdown|reboot|drop|truncate)\b|\bgit\s+(push|reset|clean)\b|\b(npm|pnpm|yarn)\s+publish\b|\b(curl|wget|Invoke-WebRequest)\b|[;&|`<>\r\n]|\$\(/i.test(
@@ -42,6 +43,7 @@ export class ExecutorFerramentas {
     const args = validarArgumentos(nome, entrada);
     const agente = this.sala.provedores.get(id)?.agente;
     if (!agente || sinal.aborted) throw new Error('Execucao encerrada.');
+    if (nome === 'perguntar_usuario') return this.sala.perguntas.perguntar(id, args, sinal);
     const chatId = this.sala.chat.id;
     const confirmarChat = async () => {
       if (this.sala.chat.id !== chatId || sinal.aborted)
@@ -73,7 +75,7 @@ export class ExecutorFerramentas {
           detalhe = String(input.command ?? '');
           if (!detalhe) throw new Error('Comando vazio.');
           validarComando(detalhe);
-          categoria = 'comando';
+          categoria = irreversivelExterno(detalhe) ? 'irreversivel_externo' : 'comando';
           critica = comandoCritico(detalhe);
         } else if (ferramentaNativa === 'WebFetch' || ferramentaNativa === 'WebSearch') {
           if (ferramentaNativa === 'WebFetch') {
@@ -270,7 +272,7 @@ export class ExecutorFerramentas {
       const comando = String(args.comando);
       validarComando(comando);
       return portao(
-        'comando',
+        irreversivelExterno(comando) ? 'irreversivel_externo' : 'comando',
         'Executar shell',
         comando,
         async () => {

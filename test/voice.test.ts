@@ -139,7 +139,9 @@ async function controlador(
         situacao: 'instalado',
       })),
       leitura: {
+        ...estadoInicialVoz().leitura,
         ...config.leitura,
+        motor: config.leitura.motor ?? 'sistema',
         disponivel: true,
         vozes: [{ id: 'voz', nome: 'Voz simulada' }],
       },
@@ -414,7 +416,7 @@ test('configuração de voz persiste separada da conversa, com defaults seguros'
       modelo: 'medium',
       idioma: 'es',
       envioAutomatico: true,
-      leitura: { ativa: true, voz: 'voz', velocidade: 1.5 },
+      leitura: { ativa: true, voz: 'voz', velocidade: 1.5, variacao: 0.5, vozesNuvem: [] },
     });
     const segunda = await controlador(tmp.pasta, processosFicticios());
     assert.equal(segunda.voz.estado.modelo, 'medium');

@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, open, stat, rm, rename, mkdtemp, readdir } from 'node:fs/promises';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -10,6 +10,7 @@ import type { ArtefatoVoz } from './catalogo';
 
 const hosts = new Set([
   'github.com',
+  'raw.githubusercontent.com',
   'objects.githubusercontent.com',
   'release-assets.githubusercontent.com',
   'huggingface.co',
@@ -47,9 +48,11 @@ export async function extrairBinarios(
   sinal?: AbortSignal,
 ): Promise<void> {
   const zip = await Open.file(arquivo);
-  if (zip.files.length > 300) throw new Error('ZIP de voz excede o limite de arquivos.');
+  if (zip.files.length > (componente === 'piper' ? 600 : 300))
+    throw new Error('ZIP de voz excede o limite de arquivos.');
   const nomes = new Set<string>();
   const selecionados = [];
+  let totalExtraido = 0;
   for (const f of zip.files) {
     const caminho = f.path.replaceAll('\\', '/');
     if (
@@ -65,16 +68,29 @@ export async function extrairBinarios(
     const permitido =
       componente === 'ffmpeg'
         ? /(?:^|\/)bin\/ffmpeg\.exe$/i.test(caminho)
-        : /^Release\/(?:whisper-cli\.exe|whisper\.dll|ggml\.dll|ggml-base\.dll|ggml-cpu-(?:alderlake|cannonlake|cascadelake|haswell|icelake|sandybridge|skylakex|sse42|x64)\.dll)$/i.test(
-            caminho,
-          );
+        : componente === 'piper'
+          ? /^piper\/(?:piper\.exe|espeak-ng\.dll|piper_phonemize\.dll|onnxruntime\.dll|onnxruntime_providers_shared\.dll|espeak-ng-data\/[a-zA-Z0-9_./-]+|LICENSE[^/]*|COPYING[^/]*)$/i.test(
+              caminho,
+            )
+          : /^Release\/(?:whisper-cli\.exe|whisper\.dll|ggml\.dll|ggml-base\.dll|ggml-cpu-(?:alderlake|cannonlake|cascadelake|haswell|icelake|sandybridge|skylakex|sse42|x64)\.dll)$/i.test(
+              caminho,
+            );
     if (!permitido || f.type !== 'File') continue;
-    if (nomes.has(nome.toLowerCase()) || f.uncompressedSize > 200 * 1024 * 1024)
+    const relativo = componente === 'piper' ? caminho.replace(/^piper\//, '') : nome;
+    if (nomes.has(relativo.toLowerCase()) || f.uncompressedSize > 200 * 1024 * 1024)
       throw new Error('ZIP de voz inválido ou grande demais.');
-    nomes.add(nome.toLowerCase());
+    nomes.add(relativo.toLowerCase());
+    totalExtraido += f.uncompressedSize;
+    if (totalExtraido > 200 * 1024 * 1024)
+      throw new Error('ZIP excede o limite total de extracao.');
     selecionados.push(f);
   }
-  const executavel = componente === 'ffmpeg' ? 'ffmpeg.exe' : 'whisper-cli.exe';
+  const executavel =
+    componente === 'ffmpeg'
+      ? 'ffmpeg.exe'
+      : componente === 'piper'
+        ? 'piper.exe'
+        : 'whisper-cli.exe';
   if (!nomes.has(executavel)) throw new Error('Executável de voz ausente no ZIP.');
   await mkdir(destino, { recursive: true, mode: 0o700 });
   for (const f of selecionados) {
@@ -89,10 +105,17 @@ export async function extrairBinarios(
         );
       },
     });
+    const destinoArquivo = join(
+      destino,
+      componente === 'piper'
+        ? f.path.replaceAll('\\', '/').replace(/^piper\//, '')
+        : basename(f.path),
+    );
+    await mkdir(dirname(destinoArquivo), { recursive: true, mode: 0o700 });
     await pipeline(
       f.stream(),
       limite,
-      createWriteStream(join(destino, basename(f.path)), { flags: 'wx', mode: 0o700 }),
+      createWriteStream(destinoArquivo, { flags: 'wx', mode: 0o700 }),
       { signal: sinal },
     );
     if (bytes !== f.uncompressedSize) throw new Error('Arquivo incompleto no ZIP de voz.');
@@ -152,7 +175,7 @@ export class InstaladorVoz {
   private async baixar(item: ArtefatoVoz, sinal: AbortSignal): Promise<void> {
     const cache = join(this.pasta, 'downloads');
     await mkdir(cache, { recursive: true, mode: 0o700 });
-    if (!/^[a-z0-9.-]+$/i.test(item.arquivo)) throw new Error('Nome de artefato inválido.');
+    if (!/^[a-z0-9_.-]+$/i.test(item.arquivo)) throw new Error('Nome de artefato inválido.');
     const parcial = join(cache, item.arquivo + '.parcial');
     let offset = await stat(parcial).then(
       (s) => s.size,
@@ -241,6 +264,15 @@ export class InstaladorVoz {
       try {
         await extrairBinarios(parcial, temporario, item.componente, sinal);
         const bin = join(this.pasta, 'bin');
+        if (item.componente === 'piper') {
+          // Runtime isolado: DLLs do Piper nao colidem com outros componentes.
+          await mkdir(bin, { recursive: true, mode: 0o700 });
+          const destino = join(bin, 'piper');
+          await rm(destino, { recursive: true, force: true });
+          await rename(temporario, destino);
+          await rm(parcial, { force: true });
+          return;
+        }
         await mkdir(bin, { recursive: true, mode: 0o700 });
         // Publica DLLs antes do executável que a detecção procura.
         for (const nome of (await readdir(temporario)).sort(
@@ -254,7 +286,7 @@ export class InstaladorVoz {
         await rm(temporario, { recursive: true, force: true });
       }
     } else {
-      const modelos = join(this.pasta, 'modelos');
+      const modelos = join(this.pasta, item.licenca ? 'licencas' : 'modelos');
       await mkdir(modelos, { recursive: true, mode: 0o700 });
       await rename(parcial, join(modelos, item.arquivo));
     }

@@ -22,6 +22,7 @@ export interface PedidoExecucao {
   ferramenta?: (nome: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 export interface EventosProvedor {
+  fase?(tipo: import('../shared/protocolo').TipoFase, detalhe?: string): void;
   sessao(id: string): void;
   fala(texto: string): void;
   parcial(texto: string): void;

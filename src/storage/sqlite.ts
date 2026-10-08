@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Mensagem } from '../shared/protocolo';
 import { migrarChats, tabelasChat, type OrigemSala } from './migracoes';
 import { type ChatPersistido, tituloMensagem } from './chats';
+import { migrarGlobal, type ConfigGlobal } from './global';
 
 export const tabelas = [
   'salas',
@@ -18,6 +19,8 @@ export const tabelas = [
   'contextos',
   'chats',
   'memorias',
+  'globais',
+  'perguntas',
 ] as const;
 export type Tabela = (typeof tabelas)[number];
 export class Armazenamento {
@@ -40,6 +43,7 @@ export class Armazenamento {
       }
       db.run('INSERT OR IGNORE INTO migrations VALUES (1)');
       migrarChats(db, origem);
+      migrarGlobal(db);
     });
   }
   private async carregar(): Promise<Database> {
@@ -126,6 +130,52 @@ export class Armazenamento {
   }
   async criarChat(chat: ChatPersistido): Promise<void> {
     await this.gravar('chats', '', chat.id, chat);
+  }
+  async atualizarGlobal(
+    parcial: Partial<Omit<ConfigGlobal, 'configuracao' | 'voz' | 'agentes'>> & {
+      configuracao?: Partial<ConfigGlobal['configuracao']>;
+      voz?: import('../voice/configuracao').ParcialVoz;
+      agentes?: Record<string, Partial<ConfigGlobal['agentes'][string]>>;
+    },
+    somenteAusentes = false,
+  ): Promise<ConfigGlobal> {
+    return this.transacao((db) => {
+      const dados = db.exec("SELECT dados FROM globais WHERE sala='' AND id='configuracao'")[0]
+        ?.values[0]?.[0];
+      const anterior: ConfigGlobal = dados
+        ? JSON.parse(String(dados))
+        : { primeiraExecucao: true, agentes: {}, revisao: '' };
+      const novo = {
+        ...anterior,
+        ...parcial,
+        agentes: { ...anterior.agentes },
+        revisao: randomUUID(),
+      } as ConfigGlobal;
+      for (const [id, agente] of Object.entries(parcial.agentes ?? {})) {
+        if (somenteAusentes && anterior.agentes[id]) continue;
+        novo.agentes[id] = {
+          ...anterior.agentes[id],
+          ...agente,
+        } as ConfigGlobal['agentes'][string];
+      }
+      if (anterior.primeiraExecucao === false) novo.primeiraExecucao = false;
+      if (parcial.configuracao)
+        novo.configuracao = {
+          ...anterior.configuracao,
+          ...parcial.configuracao,
+        } as ConfigGlobal['configuracao'];
+      if (parcial.voz)
+        novo.voz = {
+          ...anterior.voz,
+          ...parcial.voz,
+          leitura: { ...anterior.voz?.leitura, ...parcial.voz.leitura },
+        } as ConfigGlobal['voz'];
+      db.run(
+        "INSERT INTO globais (id,sala,quando,dados) VALUES ('configuracao','',?,?) ON CONFLICT(sala,id) DO UPDATE SET quando=excluded.quando,dados=excluded.dados",
+        [new Date().toISOString(), JSON.stringify(novo)],
+      );
+      return novo;
+    });
   }
   async gravarDoChat(
     tabela: (typeof tabelasChat)[number],

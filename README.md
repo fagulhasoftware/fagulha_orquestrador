@@ -16,19 +16,21 @@ Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da F
 - **Três níveis de permissão**, escolhidos na primeira execução:
   - **Manual** — você aprova 100% das ações dos agentes;
   - **Parcial** — livre dentro da pasta do projeto, aprovação para o resto;
-  - **Total** — acesso completo com aviso de cada ação; ações críticas (apagar, publicar, credenciais)
-    continuam pedindo aprovação.
+  - **Total** — acesso completo; comandos irreversíveis externos conhecidos pedem confirmação.
+    Codex tem rede, busca web e MCPs herdados ativos; comandos usam a sala.
 - **Modos por agente**: leitura e escrita, só leitura ou só escrita, além de um papel livre
   (ex.: "arquiteto", "revisor").
 - **Anexos**: texto, código, Markdown, imagens, PDF e Word. Planilhas nunca são lidas por inteiro:
   o Orquestrador envia apenas cabeçalho e amostra de linhas, com limite de tamanho.
+- **Estágio e perguntas guiadas**: acompanhe a fase de cada agente e receba perguntas com respostas
+  sugeridas quando ele precisar de uma decisão; o agente aguarda a sua resposta para continuar.
 - **Chat por voz**: fale com a sala pelo microfone e ouça as respostas dos agentes. A transcrição
   (whisper.cpp) e a leitura (voz do sistema) acontecem no seu computador; a gravação é apagada após a
   transcrição. Os componentes de voz são baixados só com a sua autorização.
 - **Chats e memória persistente**: todas as conversas ficam no menu **Chats** (com busca) e voltam ao
   reabrir o VS Code; **Novo chat** começa do zero sem perder nada. A **memória** guarda preferências e
-  decisões que os agentes recebem em todos os chats; agentes podem propor memórias, salvas só com a sua
-  aprovação.
+  decisões que os agentes recebem em todos os chats; propostas são salvas automaticamente no Total
+  e pedem sua aprovação nos demais níveis.
 - **Contexto de outros chats**: importe conversas anteriores do Claude Code, do Codex ou de outras salas.
 - **Extensível**: novos agentes por manifesto ou por outras extensões (`FagulhaSoftware.orquestrador-fagulha`).
 
@@ -122,3 +124,11 @@ Contribuição reconhecida: Fagulha Software 50%, Codex 30%, Claude 20%. Detalhe
 
 [MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini e Ollama são marcas de seus respectivos
 titulares; o Orquestrador Fagulha é compatível com essas ferramentas, sem vínculo ou endosso oficial.
+
+## Codex no nível Total (0.3.0)
+
+O Codex usa acesso completo a arquivos em modo leitura e escrita, busca web ao vivo e preserva os MCPs configurados pelo usuário. O modo somente leitura mantém o sandbox read-only. Shell nativo fica desligado: comandos usam `comando_executar`, com timeout, limite de saída e auditoria. Manual e Parcial mantêm o comportamento anterior.
+
+Na CLI 0.160.0, a verificação local confirmou busca web e ausência de shell nativo; `apply_patch` também não foi oferecido nesse cenário. Use `arquivo_escrever` para editar. A disponibilidade de ferramentas nativas pode variar conforme a CLI e o modelo.
+
+O Portão pede confirmação individual para comandos externos conhecidos de exclusão, destruição, push forçado e SQL destrutivo com host remoto explícito. O classificador é uma heurística: scripts, aliases, conexões remotas implícitas e ferramentas de MCPs herdados podem executar ações fora dessa classificação. Chamadas diretas aos MCPs e edições nativas não passam pelo Portão; a orientação no contexto não é uma barreira técnica. Ferramentas da sala continuam recusando destinos sensíveis conhecidos. Parar continua disponível. Esta entrega trata do acesso do Codex; voz neural e demais recursos planejados para 0.3.0 não estão incluídos.

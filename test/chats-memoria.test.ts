@@ -118,7 +118,8 @@ test('migracao v1 preserva todas as entidades, titulo, pendentes e sessoes; e id
     assert.equal(restaurada.estado().anexosPendentes.length, 1);
     assert.equal(restaurada.estado().contextos.length, 1);
     assert.equal(restaurada.agentes[0].temSessao, true);
-    for (const t of tabelasChat) assert((await db.listar(t, restaurada.chat.id)).length > 0, t);
+    for (const t of tabelasChat.filter((t) => t !== 'perguntas'))
+      assert((await db.listar(t, restaurada.chat.id)).length > 0, t);
     const verificador = new sql.Database(await readFile(arquivo));
     assert.equal(verificador.exec('PRAGMA foreign_key_check').length, 0);
     verificador.close();
@@ -374,14 +375,14 @@ test('contexto de memoria tem teto 4000, recentes primeiro e somente escopos ati
 for (const nivel of ['manual', 'parcial', 'total'] as NivelPermissao[])
   for (const modo of ['leitura', 'escrita', 'leitura_escrita'] as ModoAgente[])
     test(`memoria exige aprovacao: ${nivel} / ${modo}`, () =>
-      assert.equal(decidir(nivel, modo, 'memoria'), 'aprovar'));
+      assert.equal(decidir(nivel, modo, 'memoria'), nivel === 'total' ? 'automatica' : 'aprovar'));
 
 test('MCP memoria_propor so grava aprovada, nao reutiliza aprovar_sessao e nao emite segredos', async () => {
   const tmp = await temporario();
   try {
     const db = await banco(tmp.pasta),
       s = await sala(db);
-    s.config.nivel = 'total';
+    s.config.nivel = 'parcial';
     const executor = new ExecutorFerramentas(s, [], async () => {}),
       signal = new AbortController().signal;
     const eventos: DoHost[] = [];

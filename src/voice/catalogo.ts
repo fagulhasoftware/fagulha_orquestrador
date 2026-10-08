@@ -8,8 +8,56 @@ export interface ArtefatoVoz {
   tamanhoBytes: number;
   arquivo: string;
   zip?: boolean;
+  licenca?: boolean;
 }
 const revisao = '5359861c739e955e79d9a303bcbc70fb988958b1';
+// A licenca de cada voz inclui a origem do modelo-base (ver Rodada 12).
+export const VOZES_COMERCIAIS: readonly {
+  id: string;
+  nome: string;
+  modelo: ArtefatoVoz;
+  config: ArtefatoVoz;
+  licenca: string;
+  fonte: string;
+}[] = [];
+export const PIPER: ArtefatoVoz = {
+  componente: 'piper',
+  nome: 'Piper 2023.11.14-2 (Windows x64)',
+  url: 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip',
+  sha256: 'f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea',
+  tamanhoBytes: 22477236,
+  arquivo: 'piper-2023.11.14-2.zip',
+  zip: true,
+};
+export const LICENCAS_PIPER: ArtefatoVoz[] = [
+  {
+    componente: 'piper',
+    nome: 'Licenca MIT do Piper',
+    url: 'https://raw.githubusercontent.com/rhasspy/piper/2023.11.14-2/LICENSE.md',
+    sha256: '4cd71dece7037f1d6d93cce7570c57ab75ea9ac566fd4990be2f3ab08d15b47f',
+    tamanhoBytes: 1071,
+    arquivo: 'piper-MIT.txt',
+    licenca: true,
+  },
+  {
+    componente: 'piper',
+    nome: 'Licenca GPL-3 do eSpeak NG',
+    url: 'https://raw.githubusercontent.com/espeak-ng/espeak-ng/1.51.1/COPYING',
+    sha256: '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903',
+    tamanhoBytes: 35147,
+    arquivo: 'espeak-GPL3.txt',
+    licenca: true,
+  },
+  {
+    componente: 'piper',
+    nome: 'Licenca MIT do ONNX Runtime',
+    url: 'https://raw.githubusercontent.com/microsoft/onnxruntime/v1.16.2/LICENSE',
+    sha256: '2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c',
+    tamanhoBytes: 1073,
+    arquivo: 'onnxruntime-MIT.txt',
+    licenca: true,
+  },
+];
 // SHA-256: GitHub release asset digest / Hugging Face LFS oid, conferidos por download.
 export const FFMPEG: ArtefatoVoz = {
   componente: 'ffmpeg',
@@ -47,5 +95,10 @@ export const MODELOS: Record<ModeloVoz, ArtefatoVoz> = Object.fromEntries(
   ]),
 ) as Record<ModeloVoz, ArtefatoVoz>;
 export function artefato(componente: ComponenteVoz, modelo: ModeloVoz): ArtefatoVoz {
+  if (componente === 'piper') return PIPER;
+  if (componente === 'voz_neural')
+    throw new Error(
+      'Ainda nao ha uma voz pt_BR com licenca comercial e origem verificadas no catalogo. Use a voz do sistema ou nuvem opcional.',
+    );
   return componente === 'ffmpeg' ? FFMPEG : componente === 'whisper' ? WHISPER : MODELOS[modelo];
 }

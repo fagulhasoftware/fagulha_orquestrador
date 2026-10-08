@@ -6,7 +6,6 @@ import { mkdir, readFile, writeFile, rm, stat, open } from 'node:fs/promises';
 import { Armazenamento } from './storage/sqlite';
 export { Armazenamento } from './storage/sqlite';
 import { Sala, chaveSala } from './core/sala';
-import { configuracaoPadrao, limitar } from './core/configuracao';
 import { validarMensagem } from './core/protocolo';
 import { montarHtml } from './core/webview';
 import { mascarar, caminhoReal, protegerSegredo } from './core/seguranca';
@@ -110,22 +109,12 @@ export async function activate(
         criarProvedorManifesto(m, context.secrets, terminal, pedirChave, () => opcoes(m.id)),
       );
   await sala.iniciar();
-  if (sala.primeiraExecucao) {
-    const defaults = configuracaoPadrao();
-    const limites = Object.fromEntries(
-      Object.keys(defaults.limites).map((k) => [
-        k,
-        cfg().get(`anexos.${k}`, defaults.limites[k as keyof typeof defaults.limites]),
-      ]),
-    ) as Configuracao['limites'];
-    await sala.configurar({
-      nivel: cfg().get('nivel') === 'parcial' ? 'parcial' : 'manual',
-      passagensAutomaticas: cfg().get('passagensAutomaticas', 6),
-      timeoutMinutos: cfg().get('timeoutMinutos', 20),
-      limites: limitar(limites),
-    });
-  }
   const voz = new VozLocal({
+    segredos: context.secrets,
+    carregar: async () =>
+      (await storage.obter<import('./storage/global').ConfigGlobal>('globais', '', 'configuracao'))
+        ?.voz,
+    salvar: async (parcial) => (await storage.atualizarGlobal({ voz: parcial })).voz!,
     emitir: (evento) => {
       if (evento.tipo === 'estadoVoz') sala.voz = evento.voz;
       sala.emitir(evento);
@@ -230,7 +219,33 @@ export async function activate(
   const broadcast = sala.observar((e) => {
     for (const v of views) void v.postMessage(e);
     if (e.tipo === 'mensagem') voz.mensagem(e.mensagem);
+    if (e.tipo === 'fase') {
+      voz.fase(e.agente, e.fase);
+      if (
+        !vscode.window.state.focused &&
+        ['concluido', 'aguardando_resposta', 'aguardando_aprovacao'].includes(e.fase.tipo)
+      ) {
+        const nick = sala.provedores.get(e.agente)?.agente.nick ?? 'Agente';
+        void vscode.window.showInformationMessage(
+          `${nick} ${e.fase.tipo === 'concluido' ? 'concluiu' : 'precisa da sua resposta'}`,
+        );
+      }
+    }
+    if (e.tipo === 'pergunta') voz.pergunta(e.pergunta);
   });
+  let sincronizando = false;
+  const sincronizacao = setInterval(() => {
+    if (sincronizando) return;
+    sincronizando = true;
+    void sala
+      .sincronizarGlobal()
+      .then(() => voz.sincronizar())
+      .catch(() => {})
+      .finally(() => {
+        sincronizando = false;
+      });
+  }, 1000);
+  sincronizacao.unref();
   const aviso = (texto: string) =>
     sala.emitir({ tipo: 'aviso', nivel: 'erro', texto: mascarar(texto) });
   const prepararTroca = async () => {
@@ -275,7 +290,10 @@ export async function activate(
     webview.html = htmlWebview(webview, context.extensionUri);
     const listener = webview.onDidReceiveMessage(async (entrada) => {
       try {
-        if (entrada?.tipo === 'loginChave' && typeof entrada.chave === 'string')
+        if (
+          ['loginChave', 'leituraNuvemChave'].includes(entrada?.tipo) &&
+          typeof entrada.chave === 'string'
+        )
           protegerSegredo(entrada.chave);
         const m = validarMensagem(entrada);
         if (m.tipo === 'pronto') {
@@ -289,6 +307,10 @@ export async function activate(
           !vscode.workspace.isTrusted &&
           ![
             'parar',
+            'responderPergunta',
+            'cancelarPergunta',
+            'leituraNuvemChave',
+            'leituraNuvemRemover',
             'loginCancelar',
             'responderAprovacao',
             'carregarAnteriores',
@@ -318,6 +340,18 @@ export async function activate(
             'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
           );
         switch (m.tipo) {
+          case 'responderPergunta':
+            sala.perguntas.responder(m.id, m.respostas);
+            break;
+          case 'cancelarPergunta':
+            sala.perguntas.cancelar(m.id);
+            break;
+          case 'leituraNuvemChave':
+            await voz.chaveNuvem(m.provedor, m.chave);
+            break;
+          case 'leituraNuvemRemover':
+            await voz.removerChaveNuvem();
+            break;
           case 'novoChat':
             await prepararTroca();
             await sala.novoChat();
@@ -525,9 +559,7 @@ export async function activate(
             await sala.configurar({ nivel: m.nivel }, m.confirmacao);
             break;
           case 'concluirAssistente':
-            sala.primeiraExecucao = false;
-            await sala.salvar();
-            sala.estadoCompleto();
+            await sala.concluirAssistente();
             break;
           case 'vozIniciar':
             await voz.iniciar();
@@ -626,6 +658,7 @@ export async function activate(
     }),
   );
   encerrar = async () => {
+    clearInterval(sincronizacao);
     await voz.finalizar();
     await login.finalizar();
     sala.parar();

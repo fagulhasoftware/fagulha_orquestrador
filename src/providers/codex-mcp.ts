@@ -114,6 +114,13 @@ export function isolamentoMcp(
   args: string[];
   ativos: string[];
 } {
+  if (nivel === 'total')
+    return {
+      args: [],
+      ativos: lista
+        .filter((m) => m.enabled && m.nome !== 'fagulha_orquestrador')
+        .map((m) => m.nome),
+    };
   const tabelas: string[] = [],
     ativos: string[] = [];
   for (const mcp of lista) {

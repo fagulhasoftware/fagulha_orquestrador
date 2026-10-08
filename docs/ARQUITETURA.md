@@ -28,7 +28,7 @@ Principios inegociaveis:
 1. **Tudo local.** Conversa, acoes, aprovacoes e anexos ficam em SQLite em `~/.orquestra/dados/`.
    Nada e publicado, enviado ou sincronizado sem pedido explicito do usuario.
 2. **Dono no controle.** Toda acao de agente passa pelo Portao de Permissoes (secao 5).
-   Mesmo no nivel Total, o agente informa e pede aprovacao para acoes criticas.
+   No Total, comandos irreversiveis externos conhecidos pedem confirmacao; MCPs diretos nao passam pelo Portao.
 3. **Segredos so no SecretStorage do VS Code.** Nunca em SQLite, log, prompt ou arquivo.
 4. **Extensivel como o Kilo.** Novos agentes entram por manifesto ou por outra extensao (secao 4).
 5. **Limites de processamento.** Arquivos pesados (planilhas e derivados) nunca sao lidos integralmente.
@@ -85,10 +85,19 @@ media/                    icones e CSS
   `projeto`, ativos ou desativados. As memorias ativas do escopo (global + projeto da janela) entram no
   contexto de cada agente numa secao "Memoria do usuario", com teto de 4 000 caracteres (mais recentes
   primeiro). Origem: usuario (menu ou `/lembrar`, `/lembrar-global`) ou agente pela ferramenta MCP
-  `memoria_propor`, que gera um pedido de aprovacao categoria `memoria` e so grava se o usuario aprovar.
+  `memoria_propor`, que pede aprovacao individual fora do Total e salva automaticamente no Total.
   Texto que pareca segredo (chaves, tokens, senhas) e recusado.
 - **Migracao:** cada sala existente vira um chat (titulo gerado da primeira mensagem ou "Conversa de
   <data>"), preservando mensagens, acoes, anexos e sessoes.
+
+### 3.2 Estagio do agente e perguntas guiadas (versao 0.3.0)
+
+- `Agente.fase` e o evento `fase` mostram a etapa atual (pensando, lendo, pesquisando_web, escrevendo,
+  executando, aguardando_aprovacao, aguardando_resposta, respondendo) e o resultado final (concluido com
+  duracao, interrompido, erro), derivados dos eventos de cada CLI/API. Janela sem foco recebe notificacao.
+- `perguntar_usuario` (MCP): 1 a 4 perguntas com 2 a 6 opcoes (recomendada, multipla, texto livre). A
+  chamada fica bloqueada ate a resposta ou cancelamento (timeout de 30 min) e as respostas voltam ao agente.
+- Configuracao global: assistente, nivel, agentes, voz e limites sao um registro unico para todas as janelas.
 
 ## 4. Provedores (agentes)
 
@@ -123,7 +132,7 @@ Extensibilidade:
 |---|---|
 | `manual` | Toda acao de agente (leitura, escrita, comando, rede) pede aprovacao. CLIs rodam no modo nativo somente leitura; escrita e comando so pelas ferramentas MCP do Orquestrador Fagulha. |
 | `parcial` | Leitura e escrita **dentro do workspace** seguem o modo do agente sem perguntar. Pedem aprovacao: qualquer acesso **fora do workspace** (resto da maquina), comandos de shell, navegador externo e sistemas externos. |
-| `total` | Executa sem bloquear e **sempre informa** na sala (cartao de acao). Continuam pedindo aprovacao: acoes destrutivas, publicacao/escrita externa (push, deploy, envio), credenciais. Ativar exige ler o aviso de riscos e digitar a confirmacao. |
+| `total` | Executa sem bloquear e **sempre informa** na sala (cartao de acao). Comandos irreversiveis externos conhecidos pedem confirmacao individual; outras categorias seguem automaticamente. MCPs herdados diretos nao passam pelo Portao. Ativar exige ler o aviso de riscos e digitar a confirmacao. |
 
 ### 5.2 Modo por agente e modelo hibrido (decisao do produto, 2026-10-04)
 
@@ -271,3 +280,7 @@ privacidade e teste manual no VS Code (F5).
   outros chats, navegador_ler/abrir, interface completa, assistente, pacote .vsix.
 - **F1b**: voz local.
 - **F2**: navegador via CDP, sistemas externos (repositorios, VMs, sites), marketplace de manifestos.
+
+### Codex Total em 0.3.0
+
+A linha Codex da tabela anterior descreve Manual/Parcial. No Total, usa `danger-full-access` para escrita, `read-only` em modo leitura, `web_search="live"`, shell nativo desligado e MCPs herdados preservados. `comando_executar` classifica operacoes conhecidas em `irreversivel_externo`; scripts e destinos remotos implicitos nao sao interpretados. Edicoes nativas e MCPs herdados ficam fora do Portao. Memorias propostas sao automaticas no Total. Os outros provedores mantem os argumentos de CLI anteriores; a matriz do Portao e compartilhada.

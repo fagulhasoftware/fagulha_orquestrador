@@ -26,11 +26,12 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[])
         if (id === 'codex') {
           assert.equal(
             args[args.indexOf('--sandbox') + 1],
-            leitura ? 'read-only' : 'workspace-write',
+            leitura ? 'read-only' : nivel === 'total' ? 'danger-full-access' : 'workspace-write',
           );
-          assert.equal(args.includes('features.shell_tool=false'), nivel === 'manual');
+          assert.equal(args.includes('features.shell_tool=false'), nivel !== 'parcial');
           assert(!args.some((a) => a.includes('cli_auth_credentials_store')));
-          assert(args.includes('sandbox_workspace_write.network_access=false'));
+          assert(args.includes(`sandbox_workspace_write.network_access=${nivel === 'total'}`));
+          assert(args.includes(`web_search="${nivel === 'total' ? 'live' : 'disabled'}"`));
           assert(args.includes('mcp_servers.fagulha_orquestrador.enabled=true'));
           assert(
             args.includes('mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"'),

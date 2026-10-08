@@ -41,7 +41,7 @@ export async function chamarPonte(
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify({ nome, args }),
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(nome === 'perguntar_usuario' ? 1860000 : 180_000),
       redirect: 'error',
     });
   } catch (e) {

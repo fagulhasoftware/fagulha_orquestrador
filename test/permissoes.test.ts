@@ -5,7 +5,7 @@ import { Portao } from '../src/permissions/portao';
 import { configuracaoPadrao } from '../src/core/configuracao';
 import type { DoHost, PedidoAprovacao, NivelPermissao } from '../src/shared/protocolo';
 // Expectativas independentes: 12 categorias na ordem normativa.
-const esperado = { manual: 'PPPPPPPPPPPP', parcial: 'AAPPPPPPPPPP', total: 'AAAAAAAAPPPP' };
+const esperado = { manual: 'PPPPPPPPPPPPP', parcial: 'AAPPPPPPPPPPP', total: 'AAAAAAAAAAAAP' };
 for (const nivel of ['manual', 'parcial', 'total'] as NivelPermissao[])
   for (const [indice, categoria] of categorias.entries())
     test(`${nivel} x ${categoria}`, () => {
@@ -59,7 +59,7 @@ test('aprovar sessao e exato; criticas nunca reutilizam aprovacao', async () => 
   assert.equal(prompts, 2);
   config.nivel = 'total';
   for (let i = 0; i < 2; i++)
-    await portao.executar({ ...acao, categoria: 'publicacao' }, async () => efeitos++);
+    await portao.executar({ ...acao, categoria: 'irreversivel_externo' }, async () => efeitos++);
   assert.equal(prompts, 4);
   assert.equal(efeitos, 5);
   assert.equal(auditoria.length, 5);

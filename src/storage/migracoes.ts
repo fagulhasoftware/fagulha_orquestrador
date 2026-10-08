@@ -10,6 +10,7 @@ export const tabelasChat = [
   'aprovacoes',
   'contextos',
   'sessoes_provedor',
+  'perguntas',
 ] as const;
 export interface OrigemSala {
   sala: string;

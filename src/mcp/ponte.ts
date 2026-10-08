@@ -46,7 +46,7 @@ export class PonteHttp {
       res.on('close', () => {
         if (!res.writableEnded) desconectado.abort();
       });
-      const timer = setTimeout(() => {
+      let timer = setTimeout(() => {
         desconectado.abort();
         responder(408, { codigo: 'tempo_esgotado' });
       }, 180_000);
@@ -71,6 +71,13 @@ export class PonteHttp {
           return;
         }
         const sinal = AbortSignal.any([capacidade.sinal, desconectado.signal]);
+        if (pedido.nome === 'perguntar_usuario') {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            desconectado.abort();
+            responder(408, { codigo: 'tempo_esgotado' });
+          }, 1860000);
+        }
         const resultado = await this.chamar(capacidade.agente, pedido.nome, args, sinal);
         responder(200, { resultado });
       } catch (e) {

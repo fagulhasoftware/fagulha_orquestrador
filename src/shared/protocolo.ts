@@ -2,7 +2,7 @@
 // Alteracoes afetam a interface e a extensao: descreva o impacto no pull request (ver CONTRIBUTING.md).
 // Regra: o webview nunca recebe segredos nem caminhos de arquivos de credenciais.
 
-export const VERSAO_PROTOCOLO = 4; // v4: chats e memoria persistente, versao 0.2.1
+export const VERSAO_PROTOCOLO = 5; // v5: estagio do agente, perguntas guiadas, voz natural (0.3.0)
 
 // ---------- dominio ----------
 
@@ -11,6 +11,39 @@ export type ModoAgente = 'leitura_escrita' | 'leitura' | 'escrita';
 export type TipoProvedor = 'cli' | 'api';
 export type EstadoLogin = 'conectado' | 'desconectado' | 'chave_configurada' | 'desconhecido';
 export type EstadoAgente = 'livre' | 'na_fila' | 'trabalhando' | 'desabilitado' | 'erro';
+
+// ---------- estagio do agente (v5) ----------
+export type TipoFase =
+  | 'pensando' | 'lendo' | 'pesquisando_web' | 'escrevendo' | 'executando'
+  | 'aguardando_aprovacao' | 'aguardando_resposta' | 'respondendo'
+  | 'concluido' | 'interrompido' | 'erro';   // as tres ultimas sao finais
+
+export interface FaseAgente {
+  tipo: TipoFase;
+  detalhe?: string;           // arquivo, dominio, comando truncado; nunca segredos
+  desde: string;              // ISO de inicio da fase (ou do fim, nas finais)
+  duracaoMs?: number;         // somente nas fases finais: duracao total da execucao
+}
+
+// ---------- perguntas guiadas (v5) ----------
+// O agente chama a ferramenta MCP perguntar_usuario e fica pausado ate a resposta.
+export interface OpcaoPergunta { rotulo: string; descricao?: string; recomendada?: boolean }
+export interface ItemPergunta {
+  id: string;
+  pergunta: string;
+  opcoes: OpcaoPergunta[];    // 2 a 6
+  multipla?: boolean;         // permite marcar varias opcoes
+  permiteTexto?: boolean;     // campo "outra resposta"
+}
+export interface PerguntaAgente {
+  id: string;
+  agente: string;             // id do agente
+  titulo?: string;
+  perguntas: ItemPergunta[];  // 1 a 4
+  criadaEm: string;
+  expiraEm?: string;
+}
+export interface RespostaItem { id: string; opcoes: string[]; texto?: string }
 
 // ---------- login (v2) ----------
 // Nenhum login abre terminal. CLIs: o host roda o comando oficial de login em segundo plano,
@@ -54,7 +87,7 @@ export type CategoriaAcao =
   | 'leitura_maquina' | 'escrita_maquina'
   | 'comando' | 'rede_leitura' | 'navegador' | 'externo'
   | 'publicacao' | 'credencial' | 'destrutiva'
-  | 'memoria';           // v4: agente propoe guardar algo na memoria persistente
+  | 'memoria' | 'irreversivel_externo';
 
 export interface Agente {
   id: string;                 // 'claude', 'codex', 'gemini', 'ollama:llama3', ...
@@ -66,6 +99,7 @@ export interface Agente {
   versao?: string;
   login: EstadoLogin;
   conta?: string;             // v2: identificacao mascarada da conta conectada
+  fase?: FaseAgente;          // v5: estagio atual ou ultimo resultado
   opcoesLogin: OpcaoLogin[];  // v2: metodos oferecidos para este agente (vazio = nao precisa de login, ex. Ollama local)
   habilitado: boolean;
   papel: string;              // texto livre definido pelo usuario
@@ -178,6 +212,7 @@ export interface EstadoSala {
   anexosPendentes: Anexo[];   // anexados ao rascunho, ainda nao enviados
   contextos: ContextoImportado[];
   aprovacoes: PedidoAprovacao[];
+  perguntas: PerguntaAgente[];   // v5: perguntas guiadas pendentes neste chat
   primeiraExecucao: boolean;  // true -> webview mostra o assistente
   voz: EstadoVoz;
 }
@@ -186,7 +221,7 @@ export interface EstadoSala {
 // Falar: ffmpeg grava o microfone num arquivo temporario; whisper.cpp transcreve localmente; o arquivo e
 // apagado em seguida. Ouvir: voz nativa do sistema (Windows SAPI, macOS say, Linux spd-say).
 // Nenhum audio ou transcricao sai do computador; o audio nunca e gravado no SQLite.
-export type ComponenteVoz = 'ffmpeg' | 'whisper' | 'modelo';
+export type ComponenteVoz = 'ffmpeg' | 'whisper' | 'modelo' | 'piper' | 'voz_neural'; // v5: piper + voz pt_BR
 export type ModeloVoz = 'base' | 'small' | 'medium';
 export type SituacaoComponente = 'instalado' | 'ausente' | 'instalando' | 'erro' | 'manual';
 // 'manual': o sistema nao permite instalacao automatica (macOS/Linux para ffmpeg/whisper); ver 'comandoManual'.
@@ -209,6 +244,8 @@ export interface ProgressoInstalacaoVoz {
   mensagem?: string;
 }
 
+export type MotorLeitura = 'sistema' | 'piper' | 'nuvem';
+
 export interface EstadoVoz {
   disponivel: boolean;        // gravar + transcrever prontos
   motivo?: string;            // por que nao esta disponivel
@@ -230,6 +267,11 @@ export interface EstadoVoz {
     voz?: string;
     velocidade: number;       // 0.5 a 2.0
     falando?: string;         // id da Mensagem sendo lida
+    // v5: le somente perguntas, anuncio antes de agir e resumo ao concluir (leitura automatica)
+    motor: MotorLeitura;
+    motores: { id: MotorLeitura; disponivel: boolean; motivo?: string }[];
+    variacao: number;         // 0 a 1: variacao de entonacao (personalidade); usado por piper e nuvem
+    nuvem: { provedor: 'openai' | 'elevenlabs' | null; chaveConfigurada: boolean };
   };
 }
 
@@ -267,7 +309,11 @@ export type DoWebview =
   | { tipo: 'vozInstalar'; componentes: ComponenteVoz[] }       // v3: o clique e o consentimento; host so baixa o listado
   | { tipo: 'vozCancelarInstalacao' }
   | { tipo: 'vozConfigurar'; dispositivo?: string; modelo?: ModeloVoz; idioma?: EstadoVoz['idioma']; envioAutomatico?: boolean }
-  | { tipo: 'leituraConfigurar'; ativa?: boolean; voz?: string; velocidade?: number }
+  | { tipo: 'leituraConfigurar'; ativa?: boolean; voz?: string; velocidade?: number; motor?: MotorLeitura; variacao?: number }
+  | { tipo: 'leituraNuvemChave'; provedor: 'openai' | 'elevenlabs'; chave: string } // v5: validada antes de gravar
+  | { tipo: 'leituraNuvemRemover' }
+  | { tipo: 'responderPergunta'; id: string; respostas: RespostaItem[] }  // v5
+  | { tipo: 'cancelarPergunta'; id: string }
   | { tipo: 'lerMensagem'; id: string }                         // le uma fala especifica
   | { tipo: 'pararLeitura' }
   | { tipo: 'abrirLink'; url: string }                         // passa pelo Portao (categoria navegador)
@@ -293,6 +339,9 @@ export type DoHost =
   | { tipo: 'anteriores'; mensagens: Mensagem[]; fim: boolean }
   | { tipo: 'agente'; agente: Agente }
   | { tipo: 'login'; progresso: ProgressoLogin }               // v2
+  | { tipo: 'fase'; agente: string; fase: FaseAgente }          // v5
+  | { tipo: 'pergunta'; pergunta: PerguntaAgente }             // v5
+  | { tipo: 'perguntaResolvida'; id: string; situacao: 'respondida' | 'cancelada' | 'expirada' }
   | { tipo: 'anexo'; anexo: Anexo }
   | { tipo: 'anexoRemovido'; id: string }
   | { tipo: 'contexto'; contexto: ContextoImportado }

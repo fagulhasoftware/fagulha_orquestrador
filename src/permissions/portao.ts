@@ -44,7 +44,10 @@ export class Portao {
   async executar<T>(acao: Acao, efeito: () => Promise<T>, sinal?: AbortSignal): Promise<T> {
     const config = this.config();
     const decisao = decidir(config.nivel, acao.modo, acao.categoria);
-    const eCritica = critica(acao.categoria) || !!acao.critica;
+    const eCritica =
+      config.nivel === 'total'
+        ? acao.categoria === 'irreversivel_externo'
+        : critica(acao.categoria) || !!acao.critica;
     const chave = `${acao.agente}\0${config.nivel}\0${acao.modo}\0${acao.categoria}\0${acao.detalhe}`;
     let resultado: DecisaoAprovacao | 'expirada' | 'automatica' =
       decisao === 'negada' ? 'negar' : 'automatica';

@@ -9,6 +9,7 @@ import { ferramentas } from '../mcp/ferramentas';
 import { validarUrl, lerRespostaLimitada } from '../browser/pagina';
 import { protegerSegredo } from '../core/seguranca';
 import { opcoesLogin, baseApi, type ConfigLogin } from './login';
+import { faseFerramenta } from '../core/fases';
 export type ApiId = 'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api';
 export interface OpcoesApi {
   baseUrl?: string;
@@ -100,6 +101,10 @@ export class ProvedorApi implements Provedor {
     throw new Error('Informe a chave no painel do agente para validá-la antes de gravar.');
   }
   async executar(p: PedidoExecucao, ev: EventosProvedor, sinal: AbortSignal): Promise<void> {
+    const falar = (texto: string) => {
+      ev.fase?.('respondendo');
+      ev.fala(texto);
+    };
     const modelo = this.opcoes().modelo;
     if (!modelo) throw new Error(`Configure fagulha.provedores.${this.id}.modelo no VS Code.`);
     const base = validarUrl(this.endpoint);
@@ -157,6 +162,7 @@ export class ProvedorApi implements Provedor {
       },
     ];
     for (let rodada = 0; rodada < 12; rodada++) {
+      ev.fase?.('pensando');
       if (sinal.aborted) throw new Error('Execucao interrompida.');
       let caminho = '/chat/completions',
         body: any = { model: modelo, messages: mensagens, tools: openaiTools, stream: false };
@@ -209,14 +215,14 @@ export class ProvedorApi implements Provedor {
       if (this.id === 'anthropic') {
         anthropic.push({ role: 'assistant', content: j.content });
         for (const c of j.content ?? []) {
-          if (c.type === 'text') ev.fala(c.text);
+          if (c.type === 'text') falar(c.text);
           if (c.type === 'tool_use') chamadas.push({ id: c.id, nome: c.name, args: c.input });
         }
       } else if (this.id === 'gemini-api') {
         const parts = j.candidates?.[0]?.content?.parts ?? [];
         gemini.push({ role: 'model', parts });
         for (const part of parts) {
-          if (part.text && !part.thought) ev.fala(part.text);
+          if (part.text && !part.thought) falar(part.text);
           if (part.functionCall)
             chamadas.push({
               id: part.functionCall.id ?? part.functionCall.name,
@@ -228,7 +234,7 @@ export class ProvedorApi implements Provedor {
         const m = this.id === 'ollama' ? j.message : j.choices?.[0]?.message;
         if (!m) throw new Error('Resposta de API sem mensagem.');
         mensagens.push(m);
-        if (m.content) ev.fala(m.content);
+        if (m.content) falar(m.content);
         for (const t of m.tool_calls ?? [])
           chamadas.push({
             id: t.id ?? t.function.name,
@@ -242,6 +248,8 @@ export class ProvedorApi implements Provedor {
       if (!chamadas.length) return;
       const resultados: any[] = [];
       for (const chamada of chamadas) {
+        const fase = faseFerramenta(chamada.nome, chamada.args);
+        ev.fase?.(fase.tipo, fase.detalhe);
         ev.acao(`usa ${chamada.nome}`);
         let resultado: unknown;
         try {

@@ -7,6 +7,7 @@ import { agentePadrao, type Segredos } from './tipos';
 import { rodar } from './processo';
 import type { EstadoLogin, ModoAgente, NivelPermissao } from '../shared/protocolo';
 import { mascarar, protegerSegredo } from '../core/seguranca';
+import { faseFerramenta, detalheFase } from '../core/fases';
 import { opcoesLogin, rodarLogin, contaMascarada, type ConfigLogin } from './login';
 import {
   descobrirMcp,
@@ -54,7 +55,8 @@ export function montarArgumentos(
     return args;
   }
   if (id === 'codex') {
-    const sandbox = leitura ? 'read-only' : 'workspace-write';
+    const total = nivel === 'total';
+    const sandbox = leitura ? 'read-only' : total ? 'danger-full-access' : 'workspace-write';
     const args = sessao
       ? [
           'exec',
@@ -71,7 +73,7 @@ export function montarArgumentos(
       '-c',
       'approval_policy="never"',
       '-c',
-      'sandbox_workspace_write.network_access=false',
+      `sandbox_workspace_write.network_access=${total}`,
       '-c',
       'sandbox_workspace_write.writable_roots=[]',
       '-c',
@@ -85,7 +87,7 @@ export function montarArgumentos(
       '-c',
       'features.apps=false',
       '-c',
-      'web_search="disabled"',
+      `web_search="${total ? 'live' : 'disabled'}"`,
       '-c',
       'project_doc_max_bytes=0',
       '-c',
@@ -99,17 +101,13 @@ export function montarArgumentos(
       '-c',
       'mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"',
       '-c',
+      'mcp_servers.fagulha_orquestrador.tool_timeout_sec=1860',
+      '-c',
       `mcp_servers.fagulha_orquestrador.env_vars=${JSON.stringify(['ORQUESTRA_BRIDGE_URL', 'ORQUESTRA_BRIDGE_TOKEN', 'ELECTRON_RUN_AS_NODE'])}`,
     );
-    if (nivel === 'manual')
-      args.push(
-        '-c',
-        'features.shell_tool=false',
-        '-c',
-        'features.unified_exec=false',
-        '-c',
-        'features.apply_patch_freeform=false',
-      );
+    if (nivel === 'manual' || total)
+      args.push('-c', 'features.shell_tool=false', '-c', 'features.unified_exec=false');
+    if (nivel === 'manual') args.push('-c', 'features.apply_patch_freeform=false');
     args.push('-');
     return args;
   }
@@ -194,12 +192,41 @@ function resumo(v: unknown): string {
     .slice(0, 400);
 }
 export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
+  if (
+    (id === 'claude' && j.type === 'assistant') ||
+    (id === 'gemini' && j.type === 'message' && j.role === 'assistant')
+  )
+    ev.fase?.('respondendo');
+  if (j.type === 'tool_use') {
+    const f = faseFerramenta(j.tool_name ?? j.name ?? '', j.parameters ?? j.input ?? {});
+    ev.fase?.(f.tipo, f.detalhe);
+  }
+  if (
+    id === 'codex' &&
+    (j.type === 'item.started' || j.type === 'item.updated' || j.type === 'item.completed')
+  ) {
+    const it = j.item ?? {};
+    if (it.type === 'reasoning') ev.fase?.('pensando');
+    else if (it.type === 'agent_message') ev.fase?.('respondendo');
+    else if (it.type === 'mcp_tool_call') {
+      const f = faseFerramenta(it.tool ?? '', it.arguments ?? {});
+      ev.fase?.(it.status === 'completed' ? 'pensando' : f.tipo, f.detalhe);
+    } else if (it.type === 'web_search') ev.fase?.('pesquisando_web', detalheFase(it.query));
+    else if (it.type === 'file_change') ev.fase?.('escrevendo', detalheFase(it.changes?.[0]?.path));
+    else if (it.type === 'command_execution')
+      ev.fase?.(j.type === 'item.completed' ? 'pensando' : 'executando', detalheFase(it.command));
+  }
   if (id === 'claude') {
     if (j.type === 'system' && j.subtype === 'init' && j.session_id) ev.sessao(j.session_id);
     if (j.type === 'assistant')
       for (const c of j.message?.content ?? []) {
+        if (c.type === 'thinking') ev.fase?.('pensando');
         if (c.type === 'text' && c.text?.trim()) ev.fala(c.text);
-        if (c.type === 'tool_use') ev.acao(`usa ${c.name}: ${resumo(c.input)}`);
+        if (c.type === 'tool_use') {
+          const f = faseFerramenta(c.name, c.input);
+          ev.fase?.(f.tipo, f.detalhe);
+          ev.acao(`usa ${c.name}: ${resumo(c.input)}`);
+        }
       }
     if (j.type === 'result' && j.is_error) ev.erro(String(j.result ?? j.subtype));
   } else if (id === 'codex') {
@@ -412,6 +439,7 @@ export class ProvedorCli implements Provedor {
         ORQUESTRA_BRIDGE_TOKEN: p.ponte.token,
       };
       delete env.NODE_OPTIONS;
+      if (this.id === 'claude') env.MCP_TOOL_TIMEOUT = '1860000';
       delete env.CLAUDECODE;
       if (this.id === 'gemini') {
         const chave = await this.segredos?.get('fagulha.api.gemini');
@@ -455,7 +483,7 @@ export class ProvedorCli implements Provedor {
         await writeFile(
           settings,
           JSON.stringify({
-            mcpServers: { fagulha_orquestrador: { ...servidor, trust: true } },
+            mcpServers: { fagulha_orquestrador: { ...servidor, trust: true, timeout: 1860000 } },
             mcp: { allowed: ['fagulha_orquestrador'] },
             tools,
             admin: { extensions: { enabled: false }, skills: { enabled: false } },
@@ -532,7 +560,9 @@ export class ProvedorCli implements Provedor {
         if (ativos.length)
           avisar(
             'mcp',
-            `Aviso: os MCPs herdados do Codex ${ativos.join(', ')} podem continuar ativos nesta sessao porque seu transporte nao pode ser isolado com seguranca.`,
+            p.nivel === 'total'
+              ? `Total: MCPs herdados ativos (${ativos.join(', ')}). Chamadas diretas nao passam pela confirmacao do Orquestrador; use comando_executar para operacoes irreversiveis externas.`
+              : `Aviso: os MCPs herdados do Codex ${ativos.join(', ')} podem continuar ativos nesta sessao porque seu transporte nao pode ser isolado com seguranca.`,
           );
       }
       const args = montarArgumentos(
@@ -550,6 +580,7 @@ export class ProvedorCli implements Provedor {
         env,
         stdin: p.prompt,
         sinal,
+        timeoutMs: 0, // Sala aplica tempo ativo; perguntar_usuario pode esperar 30 minutos.
         filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,
         linha: (l) => {
           if (l.trim().startsWith('{')) {

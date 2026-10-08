@@ -151,10 +151,19 @@ button.chip:hover { background: var(--hover); }
 .msg.acao .autor { font-weight: 500; }
 .msg.sistema { color: var(--suave); font-size: .9em; text-align: center; font-style: italic; }
 .msg.erro { color: var(--erro); font-size: .92em; padding: 4px 8px; border: 1px solid var(--erro); border-radius: 4px; }
-.grupo-acoes { color: var(--suave); font-size: .9em; padding-left: 11px; }
-.grupo-acoes summary { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grupo-acoes { color: var(--suave); font-size: .9em; min-width: 0; flex-shrink: 0; }
+.grupo-acoes summary { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; min-width: 0; padding: 3px 0; }
+.grupo-acoes summary::before { content: '\25B8'; flex: 0 0 10px; }
+.grupo-acoes[open] summary::before { content: '\25BE'; }
+.grupo-acoes summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.grupo-acoes summary time, .execucao-autor, .execucao-contagem { flex-shrink: 0; }
+.grupo-acoes summary time { font-size: .85em; font-variant-numeric: tabular-nums; }
+.execucao-autor { font-weight: 500; }
+.execucao-contagem { opacity: .8; }
+.execucao-detalhes { max-height: 360px; overflow: auto; border-left: 1px solid var(--vscode-panel-border); margin: 4px 0 8px 4px; }
 .grupo-acoes .msg.acao { padding-left: 14px; }
-.grupo-acoes .ultima { opacity: .8; }
+.execucao-detalhes .msg.acao { white-space: pre-wrap; padding-top: 4px; padding-bottom: 4px; }
+.grupo-acoes .ultima { opacity: .8; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .msg-anexos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .anexo-mini .ic { width: 12px; height: 12px; }
 
@@ -378,3 +387,46 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 .nova-memoria { display: flex; flex-direction: column; gap: 6px; }
 .aviso-chat { padding: 5px 8px; border: 1px dashed var(--borda); border-radius: var(--raio); color: var(--suave); font-size: .9em; }
 @media (hover: none) { .chat-acoes { opacity: 1; } }
+
+/* ---------- estagio do agente (v5) ---------- */
+.faixa-fases { display: flex; flex-direction: column; gap: 2px; padding: 4px 12px; border-bottom: 1px solid var(--borda); font-size: .9em; }
+.fase { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+.fase strong { color: var(--cor, var(--texto)); }
+.fase-detalhe { color: var(--suave); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fase-tempo { flex: none; font-variant-numeric: tabular-nums; }
+.fase-icone { display: inline-flex; width: 14px; justify-content: center; font-weight: 700; }
+.fase.espera .fase-icone { color: var(--alerta); }
+.fase.final { animation: surgir .25s ease-out; }
+.fase.f-concluido .fase-icone { color: var(--ok); }
+.fase.f-interrompido .fase-icone { color: var(--suave); }
+.fase.f-erro .fase-icone { color: var(--erro); }
+@keyframes surgir { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fase.final { animation: none; } }
+
+/* ---------- perguntas guiadas (v5) ---------- */
+.perguntas { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--borda); max-height: 60vh; overflow-y: auto; }
+.cartao-pergunta {
+  padding: 10px 12px; border: 1px solid var(--foco); border-left: 3px solid var(--cor, var(--foco));
+  border-radius: var(--raio); display: flex; flex-direction: column; gap: 10px;
+  background: var(--vscode-editorWidget-background, transparent);
+}
+.cartao-pergunta .quem { font-weight: 600; color: var(--cor); }
+.pergunta-titulo { margin: 0; font-size: 1em; }
+.pergunta-item { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pergunta-item legend { padding: 0; margin-bottom: 4px; font-weight: 600; }
+.opcoes { display: flex; flex-direction: column; gap: 4px; }
+.opcao {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; text-align: left;
+  border: 1px solid var(--borda); border-radius: var(--raio); background: transparent; color: var(--texto); font: inherit; cursor: pointer;
+}
+.opcao:hover { background: var(--hover); }
+.opcao.recomendada { border-color: var(--vscode-textLink-foreground); }
+.opcao.sel { border-color: var(--foco); background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.opcao-rotulo { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.opcao-desc { color: inherit; opacity: .8; font-size: .9em; }
+.opcao.recomendada .tag { color: var(--vscode-textLink-foreground); }
+
+/* ---------- motor de leitura (v5) ---------- */
+.nuvem-voz summary { cursor: pointer; }
+.nuvem-voz[open] { padding: 6px 8px; border: 1px solid var(--borda); border-radius: var(--raio); }
+.aviso-privacidade { color: var(--alerta); }

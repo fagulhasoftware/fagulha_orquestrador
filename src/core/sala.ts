@@ -10,6 +10,7 @@ import type {
   ResumoChat,
   PedidoAprovacao,
   DecisaoAprovacao,
+  TipoFase,
 } from '../shared/protocolo';
 import { VERSAO_PROTOCOLO, CONFIRMACAO_NIVEL_TOTAL } from '../shared/protocolo';
 import type { Provedor, PedidoExecucao } from '../providers/tipos';
@@ -24,6 +25,9 @@ import { estadoInicialVoz } from '../voice/configuracao';
 import { Chats } from './chats';
 import { Memorias, contextoMemorias, memoriasDoProjeto } from './memoria';
 import { resumoChat, mesmoProjeto, type ChatPersistido } from '../storage/chats';
+import { Perguntas, type RegistroPergunta } from './perguntas';
+import { detalheFase } from './fases';
+import type { ConfigGlobal } from '../storage/global';
 export function chaveSala(raizes: string[]): string {
   const normalizadas = raizes
     .map((p) => (process.platform === 'win32' ? p.toLowerCase() : p))
@@ -76,6 +80,7 @@ export class Sala {
   readonly anexosPendentes = new Set<string>();
   readonly chats: Chats;
   readonly memorias: Memorias;
+  readonly perguntas: Perguntas;
   chat!: ChatPersistido;
   private memoriasLista: Memoria[] = [];
   private trocando = false;
@@ -87,7 +92,13 @@ export class Sala {
   voz: EstadoSala['voz'] = estadoInicialVoz();
   private sessoes = new Map<string, Sessao>();
   private fila: { id: string; saltos: number }[] = [];
-  private atual?: { id: string; controle: AbortController };
+  private atual?: {
+    id: string;
+    controle: AbortController;
+    inicio: number;
+    esperaInicio?: number;
+    esperaTotal: number;
+  };
   private ouvintes = new Set<(e: DoHost) => void>();
   private persistencias: Promise<unknown>[] = [];
   private tarefa?: Promise<void>;
@@ -104,6 +115,16 @@ export class Sala {
   ) {
     this.chats = new Chats(storage, id, projeto);
     this.memorias = new Memorias(storage, projeto);
+    this.perguntas = new Perguntas(
+      (e) => this.emitir(e),
+      (p) => storage.gravarDoChat('perguntas', this.chat.id, p.id, p),
+      (agente, texto, usuario) =>
+        this.mensagem(
+          usuario ? this.config.nick : (this.provedores.get(agente)?.agente.nick ?? agente),
+          texto,
+          'sistema',
+        ),
+    );
     this.portao = new Portao(
       () => this.config,
       (e) => this.emitir(e),
@@ -137,6 +158,9 @@ export class Sala {
     return () => this.ouvintes.delete(fn);
   }
   emitir(evento: DoHost): void {
+    if (evento.tipo === 'pergunta')
+      this.fase(evento.pergunta.agente, 'aguardando_resposta', evento.pergunta.titulo);
+    if (evento.tipo === 'perguntaResolvida' && this.atual) this.fase(this.atual.id, 'pensando');
     if (evento.tipo === 'mensagem') {
       const m = evento.mensagem;
       m.sala = this.id;
@@ -158,6 +182,7 @@ export class Sala {
       );
     }
     if (evento.tipo === 'aprovacao') {
+      this.fase(evento.pedido.agente, 'aguardando_aprovacao', evento.pedido.resumo);
       this.persistir(
         this.storage.gravarDoChat('aprovacoes', this.chat.id, evento.pedido.id, {
           ...evento.pedido,
@@ -184,6 +209,7 @@ export class Sala {
       this.consultasAprovacao.set(evento.pedido.id, timer);
     }
     if (evento.tipo === 'aprovacaoResolvida') {
+      if (this.atual) this.fase(this.atual.id, 'pensando');
       clearInterval(this.consultasAprovacao.get(evento.id));
       this.consultasAprovacao.delete(evento.id);
       this.persistir(
@@ -214,19 +240,19 @@ export class Sala {
     if (this.persistencias.length > 1000) this.persistencias = this.persistencias.slice(-500);
   }
   async iniciar(): Promise<void> {
-    const sala = await this.storage.obter<Persistida>('salas', this.id, this.id);
+    const sala = await this.storage.obter<ConfigGlobal>('globais', '', 'configuracao');
     if (sala) {
       this.config = {
         ...configuracaoPadrao(),
         ...sala.configuracao,
-        limites: limitar(sala.configuracao.limites),
+        limites: limitar(sala.configuracao?.limites ?? configuracaoPadrao().limites),
       };
       this.primeiraExecucao = sala.primeiraExecucao;
       if (this.config.nivel === 'total' && !this.config.nivelConfirmadoEm)
         this.config.nivel = 'manual';
     }
     for (const p of this.provedores.values()) {
-      const salvo = await this.storage.obter<Agente>('provedores', this.id, p.agente.id);
+      const salvo = sala?.agentes[p.agente.id];
       if (salvo)
         Object.assign(p.agente, {
           habilitado: salvo.habilitado,
@@ -244,9 +270,85 @@ export class Sala {
       p.agente.estado = p.agente.habilitado ? 'livre' : 'desabilitado';
     }
     this.chat = await this.chats.inicial(this.config.nick);
+    const faltantes = Object.fromEntries(
+      this.agentes
+        .filter((a) => !sala?.agentes[a.id])
+        .map((a) => [a.id, { habilitado: a.habilitado, papel: a.papel, modo: a.modo }]),
+    );
+    if (Object.keys(faltantes).length)
+      await this.storage.atualizarGlobal({ agentes: faltantes }, true);
     await this.carregarChat();
     await this.atualizarMemorias(false);
-    await this.salvar();
+    if (!sala?.configuracao) await this.storage.atualizarGlobal({ configuracao: this.config });
+    await this.salvar(false);
+  }
+  fase(id: string, tipo: TipoFase, detalhe?: string): void {
+    const a = this.provedores.get(id)?.agente;
+    if (!a) return;
+    if (this.atual?.id === id) {
+      if (tipo === 'aguardando_resposta' && !this.atual.esperaInicio)
+        this.atual.esperaInicio = Date.now();
+      if (tipo !== 'aguardando_resposta' && this.atual.esperaInicio) {
+        this.atual.esperaTotal += Date.now() - this.atual.esperaInicio;
+        this.atual.esperaInicio = undefined;
+      }
+    }
+    const seguro = detalheFase(detalhe);
+    if (
+      a.fase?.tipo === tipo &&
+      a.fase.detalhe === seguro &&
+      !['concluido', 'interrompido', 'erro'].includes(tipo)
+    )
+      return;
+    a.fase = {
+      tipo,
+      detalhe: seguro,
+      desde: new Date().toISOString(),
+      ...(['concluido', 'interrompido', 'erro'].includes(tipo) && this.atual?.id === id
+        ? { duracaoMs: Date.now() - this.atual.inicio }
+        : {}),
+    };
+    this.emitir({ tipo: 'fase', agente: id, fase: a.fase });
+  }
+  async sincronizarGlobal(): Promise<void> {
+    const global = await this.storage.obter<ConfigGlobal>('globais', '', 'configuracao');
+    if (!global?.configuracao) return;
+    const configuracao = {
+      ...configuracaoPadrao(),
+      ...global.configuracao,
+      limites: limitar(global.configuracao.limites ?? configuracaoPadrao().limites),
+    };
+    if (configuracao.nivel === 'total' && !configuracao.nivelConfirmadoEm)
+      configuracao.nivel = 'manual';
+    const mudou =
+      JSON.stringify(this.config) !== JSON.stringify(configuracao) ||
+      this.primeiraExecucao !== global.primeiraExecucao;
+    if (configuracao.nivel !== this.config.nivel) this.parar();
+    this.config = configuracao;
+    this.primeiraExecucao = global.primeiraExecucao;
+    let agentesMudaram = false;
+    for (const a of this.agentes) {
+      const parcial = global.agentes[a.id];
+      if (
+        !parcial ||
+        (a.habilitado === parcial.habilitado &&
+          a.papel === parcial.papel &&
+          a.modo === parcial.modo)
+      )
+        continue;
+      if (this.atual?.id === a.id && (a.modo !== parcial.modo || !parcial.habilitado)) this.parar();
+      Object.assign(a, parcial);
+      if (a.estado !== 'trabalhando') a.estado = a.habilitado ? 'livre' : 'desabilitado';
+      this.emitir({ tipo: 'agente', agente: a });
+      agentesMudaram = true;
+    }
+    if ((mudou || agentesMudaram) && this.chat) this.estadoCompleto();
+  }
+  async concluirAssistente(): Promise<void> {
+    this.primeiraExecucao = false;
+    await this.storage.atualizarGlobal({ primeiraExecucao: false });
+    await this.salvar(false);
+    this.estadoCompleto();
   }
   private async carregarChat(): Promise<void> {
     this.chat = await this.chats.obter(this.chat.id);
@@ -263,6 +365,21 @@ export class Sala {
       if (this.anexos.has(id)) this.anexosPendentes.add(id);
     for (const c of await this.storage.listar<ContextoCompleto>('contextos', this.chat.id))
       this.contextos.set(c.meta.id, c);
+    for (const p of await this.storage.listar<RegistroPergunta>('perguntas', this.chat.id)) {
+      if (p.situacao || this.perguntas.pendentes.has(p.id)) continue;
+      let vivo = false;
+      try {
+        process.kill(p.donoPid, 0);
+        vivo = true;
+      } catch (e) {
+        vivo = (e as NodeJS.ErrnoException).code === 'EPERM';
+      }
+      if (!vivo || !p.expiraEm || Date.parse(p.expiraEm) <= Date.now())
+        await this.storage.gravarDoChat('perguntas', this.chat.id, p.id, {
+          ...p,
+          situacao: 'expirada',
+        });
+    }
     for (const p of this.provedores.values()) {
       const sessao = await this.storage.obter<Sessao>(
         'sessoes_provedor',
@@ -323,6 +440,7 @@ export class Sala {
       }
   }
   async sincronizar(): Promise<void> {
+    await this.sincronizarGlobal();
     await Promise.all(this.persistencias);
     if (this.atual || this.trocando) return;
     try {
@@ -330,7 +448,7 @@ export class Sala {
     } catch {
       this.chat = await this.chats.inicial(this.config.nick);
       await this.carregarChat();
-      await this.salvar();
+      await this.salvar(false);
     }
     await this.atualizarMemorias(false);
   }
@@ -343,7 +461,7 @@ export class Sala {
         this.chat = await fn();
         await this.carregarChat();
         await this.atualizarMemorias(false);
-        await this.salvar();
+        await this.salvar(false);
         this.estadoCompleto();
         this.emitir({ tipo: 'chat', chat: resumoChat(this.chat, this.projeto) });
         await this.listarChats();
@@ -430,6 +548,7 @@ export class Sala {
       anexosPendentes: [...this.anexosPendentes].map((id) => this.anexos.get(id)!.meta),
       contextos: [...this.contextos.values()].map((c) => c.meta),
       aprovacoes: [...this.portao.pendentes.values(), ...this.aprovacoesOutras],
+      perguntas: [...this.perguntas.pendentes.values()],
       primeiraExecucao: this.primeiraExecucao,
       voz: this.voz,
     };
@@ -512,10 +631,19 @@ export class Sala {
       if (!p?.agente.habilitado) continue;
       const a = p.agente,
         controle = new AbortController();
-      this.atual = { id: a.id, controle };
+      this.atual = { id: a.id, controle, inicio: Date.now(), esperaTotal: 0 };
+      this.fase(a.id, 'pensando');
       a.estado = 'trabalhando';
       this.emitir({ tipo: 'agente', agente: a });
-      const timer = setTimeout(() => controle.abort(), this.config.timeoutMinutos * 60_000);
+      const timer = setInterval(() => {
+        const exec = this.atual;
+        if (
+          exec &&
+          !exec.esperaInicio &&
+          Date.now() - exec.inicio - exec.esperaTotal >= this.config.timeoutMinutos * 60_000
+        )
+          controle.abort();
+      }, 1000);
       const falas: string[] = [];
       let parcial: Mensagem | undefined,
         sessao = this.sessoes.get(a.id),
@@ -524,6 +652,7 @@ export class Sala {
       let preparada: Awaited<ReturnType<NonNullable<Sala['preparar']>>> | undefined;
       try {
         await Promise.all(this.persistencias);
+        await this.sincronizarGlobal();
         await this.carregarChat();
         sessao = this.sessoes.get(a.id);
         await this.atualizarMemorias(false);
@@ -560,6 +689,10 @@ export class Sala {
         await p.executar(
           pedido,
           {
+            fase: (tipo, detalhe) => {
+              if (!controle.signal.aborted && !this.perguntas.pendentes.size)
+                this.fase(a.id, tipo, detalhe);
+            },
             sessao: (id) => {
               if (controle.signal.aborted) return;
               sessao = {
@@ -574,12 +707,15 @@ export class Sala {
               this.emitir({ tipo: 'agente', agente: a });
             },
             fala: (txt) => {
+              if (!this.perguntas.pendentes.size) this.fase(a.id, 'respondendo');
               if (txt.trim()) {
                 falas.push(txt);
                 this.mensagem(a.nick, txt);
               }
             },
             parcial: (txt) => {
+              if (controle.signal.aborted) return;
+              if (!this.perguntas.pendentes.size) this.fase(a.id, 'respondendo');
               if (!parcial)
                 parcial = {
                   id: randomUUID(),
@@ -615,6 +751,7 @@ export class Sala {
         );
       } finally {
         clearTimeout(timer);
+        await this.perguntas.cancelarAgente(a.id);
         try {
           await preparada?.limpar();
         } catch {
@@ -641,6 +778,7 @@ export class Sala {
             ? 'erro'
             : 'livre'
           : 'desabilitado';
+        this.fase(a.id, controle.signal.aborted ? 'interrompido' : falhou ? 'erro' : 'concluido');
         this.atual = undefined;
         this.emitir({ tipo: 'agente', agente: a });
       }
@@ -671,6 +809,7 @@ export class Sala {
     }
   }
   parar(): void {
+    this.perguntas.cancelarTodas();
     this.fila = [];
     this.atual?.controle.abort();
     this.portao.limparSessao();
@@ -682,6 +821,7 @@ export class Sala {
   }
   async esperar(): Promise<void> {
     await this.tarefa;
+    await this.perguntas.esperar();
     await Promise.all(this.persistencias);
   }
   async novaSessao(id: string): Promise<void> {
@@ -716,7 +856,10 @@ export class Sala {
     Object.assign(a, parcial);
     if (parcial.papel) a.papel = mascarar(parcial.papel);
     a.estado = a.habilitado ? 'livre' : 'desabilitado';
-    await this.storage.gravar('provedores', this.id, id, a);
+    await this.storage.atualizarGlobal({
+      agentes: { [id]: { ...parcial, ...(parcial.papel !== undefined ? { papel: a.papel } : {}) } },
+    });
+    await this.sincronizarGlobal();
     this.emitir({ tipo: 'agente', agente: a });
   }
   async configurar(parcial: Partial<Configuracao>, confirmacao?: string): Promise<void> {
@@ -734,13 +877,24 @@ export class Sala {
     };
     if (parcial.nivel === 'total') this.config.nivelConfirmadoEm = new Date().toISOString();
     this.config.topico = mascarar(this.config.topico);
-    await this.salvar();
+    await this.storage.atualizarGlobal({
+      configuracao: {
+        ...parcial,
+        ...(parcial.nivel === 'total' ? { nivelConfirmadoEm: this.config.nivelConfirmadoEm } : {}),
+        ...(parcial.topico !== undefined ? { topico: this.config.topico } : {}),
+        ...(parcial.limites ? { limites: this.config.limites } : {}),
+      },
+    });
+    await this.salvar(false);
     this.emitir({ tipo: 'configuracao', configuracao: this.config });
   }
-  async salvar(): Promise<void> {
+  async salvar(global = true): Promise<void> {
+    if (global)
+      await this.storage.atualizarGlobal({
+        configuracao: this.config,
+        primeiraExecucao: this.primeiraExecucao,
+      });
     await this.storage.gravar('salas', this.id, this.id, {
-      configuracao: this.config,
-      primeiraExecucao: this.primeiraExecucao,
       projeto: this.projeto,
       ...(this.chat ? { ultimo_chat: this.chat.id } : {}),
     });

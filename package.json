@@ -2,7 +2,7 @@
   "name": "orquestrador-fagulha",
   "displayName": "Orquestrador Fagulha",
   "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
-  "version": "0.2.2",
+  "version": "0.3.1",
   "publisher": "FagulhaSoftware",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -44,6 +44,7 @@
     "check:webview": "tsc --noEmit",
     "smoke:clis": "tsc -p tsconfig.test.json && node scripts/smoke-clis.cjs",
     "verify:codex-mcp": "tsc -p tsconfig.test.json && node scripts/verificar-codex-mcp.cjs",
+    "verify:codex-total": "tsc -p tsconfig.test.json && node scripts/verificar-codex-total.cjs",
     "format": "prettier --write src/extension.ts src/core src/providers src/permissions src/mcp src/storage src/attachments src/context-import src/browser src/voice test/*.ts test/package-smoke.cjs scripts/*.cjs esbuild.mjs tsconfig*.json package.json .prettierrc.json"
   },
   "contributes": {

@@ -14,10 +14,20 @@ const esquema = z.object({
       ativa: z.boolean().default(false),
       voz: z.string().max(200).optional(),
       velocidade: z.number().min(0.5).max(2).default(1),
+      motor: z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      variacao: z.number().min(0).max(1).default(0.5),
+      provedor: z.enum(['openai', 'elevenlabs']).optional(),
+      vozesNuvem: z
+        .array(z.object({ id: z.string().max(200), nome: z.string().max(200) }))
+        .max(100)
+        .default([]),
     })
     .default({}),
 });
 export type ConfiguracaoVoz = z.infer<typeof esquema>;
+export type ParcialVoz = Partial<Omit<ConfiguracaoVoz, 'leitura'>> & {
+  leitura?: Partial<ConfiguracaoVoz['leitura']>;
+};
 export function padraoVoz(): ConfiguracaoVoz {
   return esquema.parse({});
 }
@@ -31,7 +41,14 @@ export function estadoInicialVoz(): EstadoVoz {
     limiteSegundos: 120,
     componentes: [],
     dispositivos: [],
-    leitura: { ...padraoVoz().leitura, disponivel: false, vozes: [] },
+    leitura: {
+      ...padraoVoz().leitura,
+      motor: 'sistema',
+      disponivel: false,
+      vozes: [],
+      motores: [],
+      nuvem: { provedor: null, chaveConfigurada: false },
+    },
   };
 }
 export async function carregarConfiguracao(arquivo: string): Promise<ConfiguracaoVoz> {

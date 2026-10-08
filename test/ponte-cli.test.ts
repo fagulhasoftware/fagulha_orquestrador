@@ -32,7 +32,10 @@ for (const nivel of ['manual', 'parcial', 'total'] as NivelPermissao[])
         assert(
           args.includes('mcp_servers.fagulha_orquestrador.default_tools_approval_mode="approve"'),
         );
-        assert(args.includes('mcp_servers={"herdado"={command="node",args=[],enabled=false}}'));
+        assert.equal(
+          args.includes('mcp_servers={"herdado"={command="node",args=[],enabled=false}}'),
+          nivel !== 'total',
+        );
         assert(!args.some((a) => /herdado.*approval_mode/.test(a)));
       }
     });

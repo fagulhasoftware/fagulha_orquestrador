@@ -1,5 +1,27 @@
 # Histórico de versões
 
+## 0.3.1
+
+- Registros de execução ficam recolhidos em uma linha, inclusive ações isoladas e resultados longos. Clique para consultar o conteúdo completo.
+- Ações consecutivas do mesmo agente compartilham um bloco com horário, agente, quantidade e resumo. Falas e erros preservam sua posição na conversa.
+- Blocos expandidos permanecem abertos durante as atualizações do chat; detalhes extensos têm rolagem própria.
+
+## 0.3.0
+
+- Codex Total: acesso completo a arquivos, rede, busca web ao vivo e MCPs herdados, inclusive em retomadas. Shell nativo desligado; comandos via sala.
+- Total automatiza ações comuns e confirma comandos irreversíveis externos conhecidos, com categoria própria e auditoria. Manual e Parcial preservados.
+- Interface e contexto explicam os limites de MCPs diretos e da classificação heurística.
+
+- **Estágio do agente:** veja o que cada agente está fazendo (pensando, lendo, pesquisando na web,
+  escrevendo, executando) e um sinal claro quando ele conclui, é interrompido ou encontra um erro.
+- **Perguntas guiadas:** quando precisa de uma decisão, o agente abre uma caixa com as perguntas e
+  respostas sugeridas, e aguarda a sua resposta antes de continuar.
+- **Configuração única:** o assistente, o nível de permissão e as preferências valem para todas as
+  janelas e pastas.
+- **Voz mais natural:** a leitura automática fala só as perguntas, o anúncio antes de agir e o resumo
+  ao concluir; motor Piper preparado e voz em nuvem opcional com chave validada no SecretStorage.
+- A instalação da voz neural pt_BR aguarda uma voz com licença comercial e origem do modelo-base verificadas; voz do sistema continua disponível.
+
 ## 0.2.2
 
 - Corrigido: ferramentas do Orquestrador (web, arquivos, memoria) recusadas para Claude e Codex antes do cartao de aprovacao.

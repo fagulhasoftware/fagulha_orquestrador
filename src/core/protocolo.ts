@@ -42,9 +42,9 @@ const schemas = [
     .object({
       tipo: z.literal('vozInstalar'),
       componentes: z
-        .array(z.enum(['ffmpeg', 'whisper', 'modelo']))
+        .array(z.enum(['ffmpeg', 'whisper', 'modelo', 'piper', 'voz_neural']))
         .min(1)
-        .max(3),
+        .max(5),
     })
     .strict(),
   z
@@ -62,9 +62,38 @@ const schemas = [
       ativa: z.boolean().optional(),
       voz: z.string().max(200).optional(),
       velocidade: z.number().min(0.5).max(2).optional(),
+      motor: z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      variacao: z.number().min(0).max(1).optional(),
     })
     .strict(),
   z.object({ tipo: z.literal('lerMensagem'), id }).strict(),
+  z
+    .object({
+      tipo: z.literal('leituraNuvemChave'),
+      provedor: z.enum(['openai', 'elevenlabs']),
+      chave: z.string().max(4096),
+    })
+    .strict(),
+  vazio('leituraNuvemRemover'),
+  z.object({ tipo: z.literal('cancelarPergunta'), id }).strict(),
+  z
+    .object({
+      tipo: z.literal('responderPergunta'),
+      id,
+      respostas: z
+        .array(
+          z
+            .object({
+              id,
+              opcoes: z.array(z.string().min(1).max(500)).max(6),
+              texto: z.string().max(2000).optional(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(4),
+    })
+    .strict(),
   z.object({ tipo: z.literal('enviar'), texto, anexos: z.array(id).max(20) }).strict(),
   z.object({ tipo: z.literal('carregarAnteriores'), antesDe: id }).strict(),
   z

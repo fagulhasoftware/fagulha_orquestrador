@@ -4,6 +4,7 @@
 import {
   CONFIRMACAO_NIVEL_TOTAL, VERSAO_PROTOCOLO,
   type Agente, type ComponenteVoz, type DoHost, type EstadoVoz, type ItemInstalacaoVoz, type Memoria, type ModeloVoz, type OpcaoLogin, type ProgressoInstalacaoVoz, type ProgressoLogin, type EstadoSala, type Mensagem, type ModoAgente, type NivelPermissao, type PedidoAprovacao, type ResumoChat,
+  type MotorLeitura, type PerguntaAgente, type TipoFase,
 } from '../shared/protocolo';
 import { renderMarkdown } from './markdown';
 import { botaoIcone, bytes, enviar, h, hora, icone, local, ouvir, salvarLocal, type Vista } from './util';
@@ -32,17 +33,18 @@ const NIVEIS: Record<NivelPermissao, { titulo: string; resumo: string; itens: st
   total: {
     titulo: 'Total',
     resumo: 'Acesso completo ao computador, com aviso de cada acao.',
-    itens: ['Os agentes agem sem esperar e informam cada acao na sala.', 'Continuam pedindo aprovacao: apagar ou sobrescrever dados, publicar ou enviar para fora, usar credenciais.'],
+    itens: ['Os agentes agem sem esperar e informam suas acoes na sala.', 'Comandos irreversiveis externos conhecidos pedem confirmacao. Codex: rede, busca web e MCPs do usuario ativos.', 'Chamadas diretas aos MCPs do usuario nao passam pela confirmacao da sala.'],
   },
 };
 const RISCOS_TOTAL = [
   'Os agentes poderao ler, criar, alterar e executar programas em qualquer pasta do computador, nao so no projeto.',
   'Um erro do agente ou uma instrucao maliciosa vinda de um arquivo ou pagina web pode alterar ou expor dados antes que voce perceba.',
   'Arquivos com segredos (.env, chaves, bancos locais) ficam ao alcance dos agentes; o Orquestrador bloqueia os conhecidos, mas nao todos.',
-  'Voce continua sendo avisado de cada acao e aprovando as criticas, mas as demais nao esperam sua resposta.',
+  'Comandos irreversiveis externos conhecidos pedem confirmacao; outras acoes seguem automaticamente. MCPs herdados e edicoes nativas nao passam pelo Portao.',
 ];
 const MODOS: Record<ModoAgente, string> = { leitura_escrita: 'Leitura e escrita', leitura: 'So leitura', escrita: 'So escrita' };
 const CATEGORIAS: Record<string, string> = {
+  irreversivel_externo: 'Acao irreversivel externa',
   leitura_workspace: 'Ler no projeto', escrita_workspace: 'Escrever no projeto', leitura_maquina: 'Ler fora do projeto',
   escrita_maquina: 'Escrever fora do projeto', comando: 'Executar comando', rede_leitura: 'Acessar a web', navegador: 'Navegador externo',
   externo: 'Sistema externo', publicacao: 'Publicar ou enviar', credencial: 'Usar credencial', destrutiva: 'Acao destrutiva', memoria: 'Guardar na memoria',
@@ -56,7 +58,6 @@ const painelAprov = h('section', { class: 'aprovacoes', 'aria-live': 'assertive'
 const lista = h('main', { class: 'lista', 'aria-live': 'polite' });
 const composer = h('footer', { class: 'composer' });
 const vistaExtra = h('section', { class: 'vista' });
-app.append(cabecalho, faixa, painelAprov, lista, composer, vistaExtra);
 
 // ---------- cabecalho ----------
 function renderCabecalho(): void {
@@ -130,6 +131,7 @@ setInterval(atualizarContagens, 1000);
 // ---------- mensagens ----------
 const cache = new Map<string, { chave: string; el: HTMLElement }>();
 let fimAnteriores = false;
+const execucoesAbertas = new Set<string>();
 
 function elMensagem(m: Mensagem): HTMLElement {
   const chave = `${m.tipo}|${m.parcial ? 1 : 0}|${m.texto}|${(m.anexos ?? []).map((a) => a.id).join(',')}|${E?.voz.leitura.disponivel ? 1 : 0}|${E?.voz.leitura.falando === m.id ? 1 : 0}`;
@@ -152,7 +154,7 @@ function elMensagem(m: Mensagem): HTMLElement {
   return el;
 }
 
-// Acoes consecutivas do mesmo agente viram um grupo recolhivel quando passam de 3.
+// Toda sequencia de acoes fica em uma linha, sem interromper a ordem das falas.
 function renderMensagens(): void {
   if (!E) return;
   const perto = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 80;
@@ -166,10 +168,24 @@ function renderMensagens(): void {
       let j = i;
       while (j + 1 < ms.length && ms[j + 1].tipo === 'acao' && ms[j + 1].autor === ms[i].autor) j++;
       const grupo = ms.slice(i, j + 1);
-      if (grupo.length > 3) {
+      {
+        const id = ms[i].id;
+        const ultima = grupo.at(-1)!;
+        const resumo = ultima.texto.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim().slice(0, 180);
         const det = h('details', { class: 'grupo-acoes' },
-          h('summary', {}, `${ms[i].autor}: ${grupo.length} acoes`, h('span', { class: 'ultima' }, ` - ${grupo.at(-1)!.texto}`)),
-          ...grupo.map(elMensagem));
+          h('summary', { title: 'Clique ou pressione Enter para mostrar ou ocultar os detalhes da execucao' },
+            h('time', { datetime: ultima.quando }, hora(ultima.quando)),
+            h('span', { class: 'execucao-autor' }, ms[i].autor),
+            h('span', { class: 'execucao-contagem' }, `${grupo.length} ${grupo.length === 1 ? 'acao' : 'acoes'}`),
+            h('span', { class: 'ultima' }, resumo)),
+          h('div', { class: 'execucao-detalhes' }, ...grupo.map(elMensagem)));
+        det.open = execucoesAbertas.has(id);
+        det.addEventListener('toggle', () => {
+          // Eventos enfileirados de elementos substituidos nao alteram o estado.
+          if (!det.isConnected) return;
+          if (det.open) execucoesAbertas.add(id);
+          else execucoesAbertas.delete(id);
+        });
         filhos.push(det);
         i = j;
         continue;
@@ -201,6 +217,158 @@ function renderMensagensDepois(): void {
   agendado = true;
   requestAnimationFrame(() => { agendado = false; renderMensagens(); });
 }
+
+// ---------- estagio do agente (v5) ----------
+const faixaFases = h('div', { class: 'faixa-fases', role: 'status', 'aria-live': 'polite' });
+const ROTULO_FASE: Record<TipoFase, string> = {
+  pensando: 'Pensando', lendo: 'Lendo arquivos', pesquisando_web: 'Pesquisando na web', escrevendo: 'Escrevendo',
+  executando: 'Executando comando', aguardando_aprovacao: 'Aguardando sua aprovacao', aguardando_resposta: 'Aguardando sua resposta',
+  respondendo: 'Respondendo', concluido: 'Concluido', interrompido: 'Interrompido', erro: 'Erro',
+};
+const FINAIS = new Set<TipoFase>(['concluido', 'interrompido', 'erro']);
+const finalVistoEm = new Map<string, number>();   // some com o tempo
+const duracaoTexto = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
+};
+
+function renderFases(): void {
+  if (!E) return;
+  const agora = Date.now();
+  const linhas: HTMLElement[] = [];
+  for (const a of E.agentes) {
+    const f = a.fase;
+    if (!f || !a.habilitado) continue;
+    if (FINAIS.has(f.tipo)) {
+      if (!finalVistoEm.has(a.id + f.desde)) finalVistoEm.set(a.id + f.desde, agora);
+      if (agora - finalVistoEm.get(a.id + f.desde)! > 12000) continue;   // sinal final visivel por 12 s
+      const icone = f.tipo === 'concluido' ? '✓' : f.tipo === 'interrompido' ? '■' : '⚠';
+      linhas.push(h('div', { class: `fase final f-${f.tipo} c-${a.cor}` },
+        h('span', { class: 'fase-icone', 'aria-hidden': 'true' }, icone),
+        h('strong', {}, a.nick), ` ${ROTULO_FASE[f.tipo].toLowerCase()}`,
+        f.duracaoMs !== undefined ? h('span', { class: 'nota' }, ` em ${duracaoTexto(f.duracaoMs)}`) : null,
+        f.tipo === 'erro' && f.detalhe ? h('span', { class: 'nota' }, ` — ${f.detalhe}`) : null));
+      continue;
+    }
+    const espera = f.tipo === 'aguardando_aprovacao' || f.tipo === 'aguardando_resposta';
+    linhas.push(h('div', { class: `fase c-${a.cor} ${espera ? 'espera' : ''}` },
+      espera ? h('span', { class: 'fase-icone', 'aria-hidden': 'true' }, '?') : h('span', { class: 'girando', 'aria-hidden': 'true' }),
+      h('strong', {}, a.nick), ` ${ROTULO_FASE[f.tipo]}`,
+      f.detalhe ? h('span', { class: 'fase-detalhe', title: f.detalhe }, ` · ${f.detalhe}`) : null,
+      h('span', { class: 'nota fase-tempo', 'data-desde': f.desde }, '')));
+  }
+  faixaFases.replaceChildren(...linhas);
+  faixaFases.hidden = !linhas.length;
+  atualizarTempos();
+}
+function atualizarTempos(): void {
+  for (const el of Array.from(faixaFases.querySelectorAll<HTMLElement>('.fase-tempo'))) {
+    const ms = Date.now() - Date.parse(el.dataset.desde ?? '');
+    el.textContent = Number.isFinite(ms) ? ` · ${duracaoTexto(ms)}` : '';
+  }
+}
+setInterval(() => { atualizarTempos(); if (E?.agentes.some((a) => a.fase && FINAIS.has(a.fase.tipo))) renderFases(); }, 1000);
+
+// ---------- perguntas guiadas (v5) ----------
+const painelPerguntas = h('section', { class: 'perguntas', 'aria-live': 'assertive' });
+const rascunhoRespostas = new Map<string, Map<string, { opcoes: Set<string>; texto: string }>>();
+
+function cartaoPergunta(p: PerguntaAgente): HTMLElement {
+  const ag = E?.agentes.find((a) => a.id === p.agente);
+  let rs = rascunhoRespostas.get(p.id);
+  if (!rs) { rs = new Map(p.perguntas.map((q) => [q.id, { opcoes: new Set<string>(), texto: '' }])); rascunhoRespostas.set(p.id, rs); }
+  const completo = () => p.perguntas.every((q) => { const r = rs!.get(q.id)!; return r.opcoes.size > 0 || r.texto.trim().length > 0; });
+  const btnResponder = h('button', { class: 'btn primario', type: 'button' }, 'Responder');
+  const atualizarBotao = () => { btnResponder.disabled = !completo(); };
+  btnResponder.addEventListener('click', () => {
+    enviar({ tipo: 'responderPergunta', id: p.id, respostas: p.perguntas.map((q) => { const r = rs!.get(q.id)!; return { id: q.id, opcoes: [...r.opcoes], texto: r.texto.trim() || undefined }; }) });
+    btnResponder.disabled = true; btnResponder.textContent = 'Enviando...';
+  });
+  const blocos = p.perguntas.map((q, iq) => {
+    const r = rs!.get(q.id)!;
+    const opcoes = q.opcoes.map((o) => {
+      const sel = r.opcoes.has(o.rotulo);
+      const b = h('button', {
+        class: `opcao ${sel ? 'sel' : ''} ${o.recomendada ? 'recomendada' : ''}`, type: 'button',
+        role: q.multipla ? 'checkbox' : 'radio', 'aria-checked': sel ? 'true' : 'false',
+      },
+        h('span', { class: 'opcao-rotulo' }, o.rotulo, o.recomendada ? h('span', { class: 'tag' }, 'recomendada') : null),
+        o.descricao ? h('span', { class: 'opcao-desc' }, o.descricao) : null);
+      b.addEventListener('click', () => {
+        if (q.multipla) { if (r.opcoes.has(o.rotulo)) r.opcoes.delete(o.rotulo); else r.opcoes.add(o.rotulo); }
+        else { r.opcoes.clear(); r.opcoes.add(o.rotulo); r.texto = ''; }
+        renderPerguntas();
+      });
+      return b;
+    });
+    const outra = q.permiteTexto ? (() => {
+      const t = h('input', { class: 'campo', type: 'text', placeholder: 'Outra resposta (opcional)', value: r.texto, 'aria-label': `Outra resposta para: ${q.pergunta}` });
+      t.addEventListener('input', () => { r.texto = t.value; if (!q.multipla && t.value.trim()) r.opcoes.clear(); atualizarBotao(); });
+      t.addEventListener('change', () => renderPerguntas());
+      return t;
+    })() : null;
+    return h('fieldset', { class: 'pergunta-item' },
+      h('legend', {}, p.perguntas.length > 1 ? `${iq + 1}. ${q.pergunta}` : q.pergunta),
+      q.multipla ? h('span', { class: 'nota' }, 'Pode marcar mais de uma.') : null,
+      h('div', { class: 'opcoes', role: q.multipla ? 'group' : 'radiogroup' }, ...opcoes),
+      outra);
+  });
+  atualizarBotao();
+  return h('article', { class: `cartao-pergunta c-${ag?.cor ?? 'azul'}`, role: 'dialog', 'aria-label': `Pergunta de ${ag?.nick ?? p.agente}` },
+    h('div', { class: 'aprov-topo' },
+      h('span', { class: 'quem' }, ag?.nick ?? p.agente),
+      h('span', { class: 'cat' }, 'precisa da sua resposta'),
+      p.expiraEm ? h('span', { class: 'expira', 'data-expira': p.expiraEm }) : null),
+    p.titulo ? h('h3', { class: 'pergunta-titulo' }, p.titulo) : null,
+    ...blocos,
+    h('div', { class: 'botoes' }, btnResponder,
+      h('button', { class: 'btn', type: 'button', onclick: () => enviar({ tipo: 'cancelarPergunta', id: p.id }) }, 'Pular')));
+}
+
+function renderPerguntas(): void {
+  const ps = E?.perguntas ?? [];
+  // preserva o foco do campo de texto durante a re-renderizacao
+  const ativo = document.activeElement as HTMLInputElement | null;
+  const rotuloFoco = ativo?.closest('.cartao-pergunta') ? ativo.getAttribute('aria-label') : null;
+  painelPerguntas.replaceChildren(...ps.map(cartaoPergunta));
+  painelPerguntas.hidden = !ps.length;
+  if (rotuloFoco) painelPerguntas.querySelector<HTMLInputElement>(`[aria-label="${CSS.escape(rotuloFoco)}"]`)?.focus();
+}
+
+// ---------- motor de leitura (v5) ----------
+const chaveNuvem = h('input', { class: 'campo', type: 'password', autocomplete: 'off', placeholder: 'Cole a chave aqui', 'aria-label': 'Chave do provedor de voz' });
+function blocoMotorLeitura(v: EstadoVoz): HTMLElement {
+  const l = v.leitura;
+  const NOMES: Record<MotorLeitura, string> = { sistema: 'Voz do sistema', piper: 'Neural local (Piper) — natural, offline', nuvem: 'Nuvem (OpenAI ou ElevenLabs) — mais expressiva' };
+  const motor = h('select', { class: 'campo', 'aria-label': 'Motor de voz' },
+    ...l.motores.map((m) => h('option', { value: m.id, selected: m.id === l.motor, disabled: !m.disponivel }, `${NOMES[m.id]}${m.disponivel ? '' : ` (${m.motivo ?? 'indisponivel'})`}`)));
+  motor.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', motor: motor.value as MotorLeitura }));
+  const variacao = h('input', { type: 'range', min: 0, max: 1, step: 0.1, value: l.variacao, 'aria-label': 'Variacao de entonacao' });
+  variacao.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', variacao: Number(variacao.value) }));
+  const provedor = h('select', { class: 'campo', 'aria-label': 'Provedor de voz em nuvem' },
+    h('option', { value: 'openai', selected: l.nuvem.provedor !== 'elevenlabs' }, 'OpenAI'),
+    h('option', { value: 'elevenlabs', selected: l.nuvem.provedor === 'elevenlabs' }, 'ElevenLabs'));
+  const salvarChave = h('button', { class: 'btn pequeno primario', type: 'button' }, 'Validar e salvar');
+  salvarChave.addEventListener('click', () => {
+    const chave = chaveNuvem.value.trim();
+    if (chave.length < 8) return;
+    chaveNuvem.value = '';
+    enviar({ tipo: 'leituraNuvemChave', provedor: provedor.value as 'openai' | 'elevenlabs', chave });
+  });
+  return h('div', { class: 'pilha' },
+    h('label', { class: 'rotulo' }, 'Motor de voz', motor),
+    l.motor !== 'sistema' ? h('label', { class: 'rotulo' }, 'Personalidade (variacao de entonacao)', variacao) : null,
+    h('details', { class: 'nuvem-voz', open: l.motor === 'nuvem' && !l.nuvem.chaveConfigurada },
+      h('summary', {}, 'Voz em nuvem (opcional)'),
+      h('p', { class: 'nota aviso-privacidade' }, 'Atencao: com a voz em nuvem, o texto lido (perguntas, anuncios e resumos dos agentes) e enviado ao provedor escolhido. O restante continua somente no seu computador.'),
+      l.nuvem.chaveConfigurada
+        ? h('div', { class: 'linha' }, h('span', { class: 'estado bom' }, `chave ${l.nuvem.provedor === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI'} configurada`),
+          h('button', { class: 'btn fantasma pequeno', type: 'button', onclick: () => enviar({ tipo: 'leituraNuvemRemover' }) }, 'Remover'))
+        : h('div', { class: 'pilha' }, h('label', { class: 'rotulo' }, 'Provedor', provedor), h('label', { class: 'rotulo' }, 'Chave de API', chaveNuvem), salvarChave)),
+    h('p', { class: 'nota' }, 'A leitura automatica fala somente as perguntas dos agentes, o anuncio antes de agir e o resumo ao concluir.'));
+}
+
+app.append(cabecalho, faixa, faixaFases, painelAprov, painelPerguntas, lista, composer, vistaExtra);
 
 // ---------- composer ----------
 const chipsComposer = h('div', { class: 'chips-composer' });
@@ -472,6 +640,7 @@ function secaoVoz(): HTMLElement {
     caixa('Enviar a mensagem automaticamente apos transcrever', v.envioAutomatico, (b) => enviar({ tipo: 'vozConfigurar', envioAutomatico: b })),
     h('p', { class: 'nota' }, `Cada gravacao tem no maximo ${minSeg(v.limiteSegundos)}.`),
     h('h4', {}, 'Ouvir'),
+    blocoMotorLeitura(v),
     !v.leitura.disponivel
       ? h('p', { class: 'nota' }, v.leitura.motivo ?? 'Nenhuma voz do sistema foi encontrada.')
       : h('div', { class: 'pilha' },
@@ -619,7 +788,7 @@ function abaMemoria(): HTMLElement {
     ? h('section', { class: 'grupo-chats' }, h('h3', {}, t), nota ? h('p', { class: 'nota' }, nota) : null, h('ul', { class: 'lista-memorias' }, ...itens.map(itemMemoria)))
     : null;
   return h('div', { class: 'pilha' },
-    h('p', { class: 'nota' }, 'Fatos que os agentes recebem em todos os chats: preferencias, decisoes e convencoes. Os agentes podem propor memorias, mas so voce aprova. Nao guarde senhas ou chaves aqui.'),
+    h('p', { class: 'nota' }, 'Fatos que os agentes recebem em todos os chats: preferencias, decisoes e convencoes. Propostas sao salvas automaticamente no Total; outros niveis pedem sua aprovacao. Nao guarde senhas ou chaves aqui.'),
     h('div', { class: 'nova-memoria' }, novaMemoria,
       h('div', { class: 'linha' }, escopo, h('button', { class: 'btn primario', type: 'button', onclick: salvar }, 'Lembrar'))),
     h('p', { class: 'nota' }, 'Atalho no chat: /lembrar texto (deste projeto) ou /lembrar-global texto.'),
@@ -906,7 +1075,7 @@ function renderTudo(): void {
   const assistente = E.primeiraExecucao;
   const chat = !assistente && vista === 'chat';
   app.dataset.vista = assistente ? 'assistente' : vista;
-  renderCabecalho(); renderFaixa(); renderAprovacoes(); renderChipsComposer(); renderVoz();
+  renderCabecalho(); renderFaixa(); renderFases(); renderAprovacoes(); renderPerguntas(); renderChipsComposer(); renderVoz();
   [faixa, lista, composer].forEach((el) => { el.hidden = !chat; });
   cabecalho.hidden = assistente;
   vistaExtra.hidden = chat;
@@ -978,6 +1147,20 @@ ouvir((m: DoHost) => {
       memorias = m.lista;
       E.memoriasAtivas = m.lista.filter((x) => x.ativa && (x.escopo === 'global' || x.projeto === E!.sala.projeto)).length;
       if (vista === 'chats') renderTudo();
+      break;
+    case 'fase': {
+      const ag = E.agentes.find((a) => a.id === m.agente);
+      if (ag) { ag.fase = m.fase; renderFases(); renderFaixa(); }
+      break;
+    }
+    case 'pergunta':
+      E.perguntas = substituir(E.perguntas, m.pergunta);
+      renderPerguntas();
+      break;
+    case 'perguntaResolvida':
+      E.perguntas = E.perguntas.filter((x) => x.id !== m.id);
+      rascunhoRespostas.delete(m.id);
+      renderPerguntas();
       break;
     case 'login': {
       const p = m.progresso;
