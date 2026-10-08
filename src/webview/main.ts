@@ -9,6 +9,7 @@ import {
 import { renderMarkdown } from './markdown';
 import { botaoIcone, bytes, enviar, h, hora, icone, local, ouvir, salvarLocal, type Vista } from './util';
 import { localeIntl, t } from './i18n';
+import { abrirIntegracoes, iniciarIntegracoes, receberIntegracao, receberIntegracoes, receberSkill, receberSkills, vistaIntegracoes } from './integracoes';
 const traduzir = t;
 
 let E: EstadoSala | null = null;
@@ -77,6 +78,11 @@ function renderCabecalho(): void {
       btnLeitura,
       botaoIcone('mais', t('New chat'), () => { enviar({ tipo: 'novoChat' }); irPara('chat'); }),
       botaoIcone('chats', t('Chats and memory'), () => (vista === 'chats' ? irPara('chat') : abrirChats()), vista === 'chats' ? 'ativo' : ''),
+      botaoIcone('plug', E.integracoesConectadas ? t('Integrations and skills ({n} connected)', { n: E.integracoesConectadas }) : t('Integrations and skills'), () => {
+        if (vista === 'integracoes') return irPara('chat');
+        abrirIntegracoes();
+        irPara('integracoes');
+      }, vista === 'integracoes' ? 'ativo' : ''),
       botaoIcone('pessoas', t('Agents'), () => irPara(vista === 'agentes' ? 'chat' : 'agentes'), vista === 'agentes' ? 'ativo' : ''),
       botaoIcone('engrenagem', t('Settings'), () => irPara(vista === 'config' ? 'chat' : 'config'), vista === 'config' ? 'ativo' : '')),
   );
@@ -1114,6 +1120,7 @@ function renderTudo(): void {
   else if (vista === 'agentes') vistaExtra.replaceChildren(vistaAgentes());
   else if (vista === 'config') vistaExtra.replaceChildren(vistaConfig());
   else if (vista === 'chats') vistaExtra.replaceChildren(vistaChats());
+  else if (vista === 'integracoes') vistaExtra.replaceChildren(vistaIntegracoes());
   else vistaExtra.replaceChildren();
   if (chat) renderMensagens();
   ajustarAltura();
@@ -1174,6 +1181,24 @@ ouvir((m: DoHost) => {
       renderCabecalho();
       if (vista === 'chats') renderTudo();
       break;
+    case 'integracoes':
+      receberIntegracoes(m.lista);
+      E.integracoesConectadas = m.lista.filter((x) => x.estado === 'conectada' && x.ativa).length;
+      if (vista === 'integracoes') renderTudo(); else renderCabecalho();
+      break;
+    case 'integracao':
+      receberIntegracao(m.integracao);
+      if (vista === 'integracoes') renderTudo();
+      break;
+    case 'skills':
+      receberSkills(m.lista);
+      E.skillsAtivas = m.lista.filter((x) => x.ativa).length;
+      if (vista === 'integracoes') renderTudo();
+      break;
+    case 'skill':
+      receberSkill(m.nome, m.conteudo);
+      if (vista === 'integracoes') renderTudo();
+      break;
     case 'memorias':
       memorias = m.lista;
       E.memoriasAtivas = m.lista.filter((x) => x.ativa && (x.escopo === 'global' || x.projeto === E!.sala.projeto)).length;
@@ -1206,4 +1231,5 @@ ouvir((m: DoHost) => {
 });
 
 app.append(h('div', { class: 'soltar', 'aria-hidden': 'true' }, icone('clipe'), t('Drop to attach')));
+iniciarIntegracoes({ renderTudo: () => renderTudo(), voltar: () => irPara('chat'), avisar: (x) => avisar(x) });
 enviar({ tipo: 'pronto' });

@@ -16,7 +16,7 @@ export const ouvir = (fn: (msg: DoHost) => void): void =>
 
 // Estado local do proprio webview (rascunho, aba): sobrevive a ocultar/mostrar o painel.
 export interface Local { rascunho: string; vista: Vista }
-export type Vista = 'chat' | 'agentes' | 'config' | 'chats';
+export type Vista = 'chat' | 'agentes' | 'config' | 'chats' | 'integracoes';
 export const local = (): Local => ({ rascunho: '', vista: 'chat', ...(api.getState() as Partial<Local> | undefined) });
 export const salvarLocal = (parcial: Partial<Local>): void => api.setState({ ...local(), ...parcial });
 
@@ -55,6 +55,7 @@ const PATHS: Record<string, string> = {
   fixar: 'M10.5 1.5 14.5 5.5l-1 1-1-.4-2.6 2.6.3 2.8-1 1L6.6 9.9 3 13.5 2.5 13l3.6-3.6L3.5 6.8l1-1 2.8.3 2.6-2.6-.4-1z',
   lapis: 'M11.3 1.7a1.6 1.6 0 0 1 2.3 0l.7.7a1.6 1.6 0 0 1 0 2.3L5.6 13.4 1.5 14.5l1.1-4.1zM3.8 10.9l-.5 1.8 1.8-.5 7.4-7.4-1.3-1.3z',
   lixeira: 'M6 1h4l.5 1H14v1.4H2V2h3.5zM3 4.5h10l-.8 10.5H3.8zm1.5 1.4.6 7.7h5.8l.6-7.7z',
+  plug: 'M5 1h1.4v3h3.2V1H11v3h1.5v3.2A4.5 4.5 0 0 1 8.7 11.6V15H7.3v-3.4A4.5 4.5 0 0 1 3.5 7.2V4H5zm-.1 4.4v1.8a3.1 3.1 0 0 0 6.2 0V5.4z',
   copiar: 'M4 4V1.5h10.5V12H12v2.5H1.5V4zm1.4 0H12v6.6h1.1V2.9H5.4zM2.9 5.4v7.7h7.7V5.4z',
 };
 export function icone(nome: keyof typeof PATHS | string, titulo?: string): SVGSVGElement {
