@@ -47,6 +47,9 @@ export interface RegistroPergunta extends PerguntaAgente {
   donoPid: number;
 }
 export class Perguntas {
+  get bloqueada(): boolean {
+    return this.pendentes.size > 0 || this.finalizacoes.size > 0;
+  }
   private finalizacoes = new Set<Promise<void>>();
   readonly pendentes = new Map<string, PerguntaAgente>();
   private resolvers = new Map<

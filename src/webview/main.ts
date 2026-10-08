@@ -272,6 +272,25 @@ setInterval(() => { atualizarTempos(); if (E?.agentes.some((a) => a.fase && FINA
 // ---------- perguntas guiadas (v5) ----------
 const painelPerguntas = h('section', { class: 'perguntas', 'aria-live': 'assertive' });
 const rascunhoRespostas = new Map<string, Map<string, { opcoes: Set<string>; texto: string }>>();
+// Atalhos: 1-6 escolhem a opcao da primeira pergunta sem resposta, Enter responde, Esc pula.
+painelPerguntas.addEventListener('keydown', (e) => {
+  const alvo = e.target as HTMLElement;
+  if (alvo.tagName === 'INPUT') return;
+  const cartao = painelPerguntas.querySelector<HTMLElement>('.cartao-pergunta');
+  if (!cartao) return;
+  if (/^[1-6]$/.test(e.key)) {
+    const itens = Array.from(cartao.querySelectorAll<HTMLElement>('.pergunta-item'));
+    const pendente = itens.find((f) => !f.querySelector('.opcao.sel')) ?? itens[0];
+    const opcao = pendente?.querySelectorAll<HTMLButtonElement>('.opcao')[Number(e.key) - 1];
+    if (opcao) { e.preventDefault(); opcao.click(); }
+  } else if (e.key === 'Enter' && alvo.tagName !== 'BUTTON') {
+    const btn = cartao.querySelector<HTMLButtonElement>('.botoes .btn.primario');
+    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    cartao.querySelector<HTMLButtonElement>('.botoes .btn:not(.primario)')?.click();
+  }
+});
 
 function cartaoPergunta(p: PerguntaAgente): HTMLElement {
   const ag = E?.agentes.find((a) => a.id === p.agente);
@@ -318,6 +337,7 @@ function cartaoPergunta(p: PerguntaAgente): HTMLElement {
     h('div', { class: 'aprov-topo' },
       h('span', { class: 'quem' }, ag?.nick ?? p.agente),
       h('span', { class: 'cat' }, 'precisa da sua resposta'),
+      h('span', { class: 'nota atalhos' }, '1-6 escolhe · Enter responde · Esc pula'),
       p.expiraEm ? h('span', { class: 'expira', 'data-expira': p.expiraEm }) : null),
     p.titulo ? h('h3', { class: 'pergunta-titulo' }, p.titulo) : null,
     ...blocos,
@@ -327,12 +347,17 @@ function cartaoPergunta(p: PerguntaAgente): HTMLElement {
 
 function renderPerguntas(): void {
   const ps = E?.perguntas ?? [];
+  const pendente = ps.length > 0;
+  const estavaPendente = app.classList.contains('pergunta-pendente');
+  app.classList.toggle('pergunta-pendente', pendente);
+  texto.placeholder = pendente ? 'Responda a pergunta acima para o agente continuar.' : 'Mensagem para a sala. Use @ para mencionar.';
   // preserva o foco do campo de texto durante a re-renderizacao
   const ativo = document.activeElement as HTMLInputElement | null;
   const rotuloFoco = ativo?.closest('.cartao-pergunta') ? ativo.getAttribute('aria-label') : null;
   painelPerguntas.replaceChildren(...ps.map(cartaoPergunta));
   painelPerguntas.hidden = !ps.length;
   if (rotuloFoco) painelPerguntas.querySelector<HTMLInputElement>(`[aria-label="${CSS.escape(rotuloFoco)}"]`)?.focus();
+  else if (pendente && !estavaPendente) painelPerguntas.querySelector<HTMLElement>('.opcao')?.focus();
 }
 
 // ---------- motor de leitura (v5) ----------
@@ -368,7 +393,7 @@ function blocoMotorLeitura(v: EstadoVoz): HTMLElement {
     h('p', { class: 'nota' }, 'A leitura automatica fala somente as perguntas dos agentes, o anuncio antes de agir e o resumo ao concluir.'));
 }
 
-app.append(cabecalho, faixa, faixaFases, painelAprov, painelPerguntas, lista, composer, vistaExtra);
+app.append(cabecalho, faixa, faixaFases, painelAprov, lista, composer, vistaExtra);
 
 // ---------- composer ----------
 const chipsComposer = h('div', { class: 'chips-composer' });
@@ -380,7 +405,7 @@ const btnLeitura = botaoIcone('som', 'Leitura automatica das respostas', () => {
 const btnEnviar = h('button', { class: 'bi enviar', type: 'button', title: 'Enviar (Enter)', 'aria-label': 'Enviar', onclick: () => enviarMensagem() }, icone('enviar'));
 const avisoLocal = h('div', { class: 'aviso-local', role: 'status', hidden: true });
 composer.append(
-  avisoLocal, barraGravacao, chipsComposer,
+  painelPerguntas, avisoLocal, barraGravacao, chipsComposer,
   h('div', { class: 'caixa' }, sugestoes, texto),
   h('div', { class: 'barra' },
     botaoIcone('clipe', 'Anexar arquivos', () => enviar({ tipo: 'anexarArquivos' })),
@@ -408,6 +433,7 @@ function enviarMensagem(): void {
   const t = texto.value.trim();
   const anexos = (E?.anexosPendentes ?? []).filter((a) => a.tratamento !== 'recusado').map((a) => a.id);
   if (!t && !anexos.length) return;
+  if (E?.perguntas.length) { avisar('Ha uma pergunta pendente acima. Responda ou pule para o agente continuar.'); return; }
   if (!anexos.length && comandoMemoria(t)) { texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes(); return; }
   enviar({ tipo: 'enviar', texto: t, anexos });
   texto.value = ''; salvarLocal({ rascunho: '' }); ajustarAltura(); fecharSugestoes();

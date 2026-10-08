@@ -575,10 +575,16 @@ export class ProvedorCli implements Provedor {
         process.execPath,
         herdados,
       );
+      if (this.id === 'codex' && p.nivel !== 'manual')
+        for (const caminho of p.caminhosImagens ?? [])
+          args.splice(args.length - 1, 0, '-i', caminho);
       await rodar(this.bin.cmd, [...this.bin.prefixo, ...args], {
         cwd,
         env,
-        stdin: p.prompt,
+        stdin:
+          this.id === 'gemini' && p.nivel !== 'manual' && p.caminhosImagens?.length
+            ? `${p.prompt}\nImagens da mensagem: ${p.caminhosImagens.map((c) => `@${JSON.stringify(c)}`).join(' ')}`
+            : p.prompt,
         sinal,
         timeoutMs: 0, // Sala aplica tempo ativo; perguntar_usuario pode esperar 30 minutos.
         filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,

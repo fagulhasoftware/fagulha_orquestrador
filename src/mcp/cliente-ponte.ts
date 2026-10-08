@@ -1,9 +1,18 @@
 import { validarArgumentos } from './ferramentas';
 import { diagnosticos, codigoSeguro, type CodigoDiagnostico } from './diagnostico';
+import { ErroFerramenta } from './erros';
+import { mascarar } from '../core/seguranca';
 
 export class FalhaPonte extends Error {
-  constructor(readonly codigo: CodigoDiagnostico) {
-    super(diagnosticos[codigo]);
+  constructor(
+    readonly codigo: CodigoDiagnostico,
+    detalhe?: string,
+  ) {
+    super(
+      detalhe
+        ? `${diagnosticos[codigo]} ${mascarar(detalhe).slice(0, 1000)}`
+        : diagnosticos[codigo],
+    );
   }
 }
 
@@ -15,8 +24,11 @@ export async function chamarPonte(
   let args: Record<string, unknown>;
   try {
     args = validarArgumentos(nome, entrada);
-  } catch {
-    throw new FalhaPonte('argumentos_invalidos');
+  } catch (e) {
+    throw new FalhaPonte(
+      'argumentos_invalidos',
+      e instanceof ErroFerramenta ? e.message : undefined,
+    );
   }
   const url = env.ORQUESTRA_BRIDGE_URL,
     token = env.ORQUESTRA_BRIDGE_TOKEN;
@@ -50,7 +62,7 @@ export async function chamarPonte(
     );
   }
   if (resposta.status === 401) throw new FalhaPonte('token_recusado');
-  let dados: { resultado?: unknown; codigo?: unknown };
+  let dados: { resultado?: unknown; codigo?: unknown; mensagem?: unknown };
   try {
     dados = await resposta.json();
   } catch {
@@ -60,6 +72,7 @@ export async function chamarPonte(
     throw new FalhaPonte(
       codigoSeguro(dados?.codigo) ??
         (resposta.status === 408 ? 'tempo_esgotado' : 'ferramenta_falhou'),
+      typeof dados?.mensagem === 'string' ? dados.mensagem : undefined,
     );
   if (!dados || !Object.hasOwn(dados, 'resultado')) throw new FalhaPonte('ponte_indisponivel');
   return dados.resultado;

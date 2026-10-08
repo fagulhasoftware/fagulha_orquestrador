@@ -8,6 +8,8 @@ import { rodar } from '../providers/processo';
 import type { CategoriaAcao } from '../shared/protocolo';
 import { validarMemoria } from '../core/memoria';
 import { irreversivelExterno } from '../permissions/irreversivel';
+import { lerImagem, eConteudoImagem } from '../attachments/imagem';
+import { ErroFerramenta } from './erros';
 export function comandoCritico(comando: string): boolean {
   if (
     /\b(rm|rmdir|del|erase|Remove-Item|format|mkfs|diskpart|shutdown|reboot|drop|truncate)\b|\bgit\s+(push|reset|clean)\b|\b(npm|pnpm|yarn)\s+publish\b|\b(curl|wget|Invoke-WebRequest)\b|[;&|`<>\r\n]|\$\(/i.test(
@@ -148,7 +150,16 @@ export class ExecutorFerramentas {
           const r = await fn();
           this.sala.mensagem(
             agente.nick,
-            `Resultado ${nome}: ${mascarar(typeof r === 'string' ? r : JSON.stringify(r)).slice(0, 3000)}`,
+            `Resultado ${nome}: ${mascarar(
+              eConteudoImagem(r)
+                ? r.conteudoMcp
+                    .filter((c) => c.type === 'text')
+                    .map((c) => c.text)
+                    .join('\n')
+                : typeof r === 'string'
+                  ? r
+                  : JSON.stringify(r),
+            ).slice(0, 3000)}`,
             'acao',
           );
           return r;
@@ -210,8 +221,36 @@ export class ExecutorFerramentas {
         'Ler anexo',
         String(args.id),
         async () => {
-          const a = this.sala.anexos.get(String(args.id));
-          if (!a || !enviados.has(a.meta.id)) throw new Error('Anexo nao enviado.');
+          const chave = String(args.id);
+          let a = this.sala.anexos.get(chave);
+          if (a && !enviados.has(a.meta.id))
+            throw new ErroFerramenta('Anexo pertence a outro chat ou ainda nao foi enviado.');
+          if (!a) {
+            const candidatos = [...this.sala.anexos.values()].filter(
+              (x) => enviados.has(x.meta.id) && x.meta.nome === chave,
+            );
+            if (candidatos.length > 1)
+              throw new ErroFerramenta(
+                `Nome de anexo ambiguo; use um destes ids: ${candidatos.map((x) => x.meta.id).join(', ')}.`,
+              );
+            a = candidatos[0];
+          }
+          if (!a) {
+            if (await this.sala.storage.obter('anexos', this.sala.id, chave))
+              throw new ErroFerramenta('Anexo pertence a outro chat.');
+            throw new ErroFerramenta(
+              `Anexo nao encontrado (ids disponiveis: ${[...enviados].join(', ') || 'nenhum'}).`,
+            );
+          }
+          if (a.meta.tratamento === 'recusado')
+            throw new ErroFerramenta(
+              'Anexo recusado: arquivo maior que o limite ou tipo nao suportado.',
+            );
+          if (a.meta.tipo === 'imagem') {
+            if (!a.arquivo) throw new ErroFerramenta('Arquivo da imagem indisponivel.');
+            return lerImagem(a.arquivo, this.sala.config.limites.imagemMaxMB);
+          }
+          if (a.meta.tipo === 'outro') throw new ErroFerramenta('Tipo de anexo nao suportado.');
           return a.texto;
         },
         false,
@@ -251,6 +290,8 @@ export class ExecutorFerramentas {
             await writeFile(real, texto, { mode: 0o600 });
             return { escrito: true, bytes: Buffer.byteLength(texto) };
           }
+          if (/\.(png|jpe?g|webp|gif)$/i.test(real))
+            return lerImagem(real, this.sala.config.limites.imagemMaxMB);
           const arquivo = await open(real, 'r');
           try {
             const info = await arquivo.stat();

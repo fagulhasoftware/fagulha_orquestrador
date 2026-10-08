@@ -76,7 +76,12 @@ export function botaoIcone(nome: string, titulo: string, onclick: () => void, ex
   return h('button', { class: `bi ${extra}`, title: titulo, 'aria-label': titulo, type: 'button', onclick: () => onclick() }, icone(nome));
 }
 
-export const hora = (iso: string): string => iso.slice(11, 16);
+// Os horarios chegam em UTC (ISO); a exibicao usa o fuso e o idioma do computador.
+export const hora = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 16);
+  return d.toLocaleTimeString(navigator.language || undefined, { hour: '2-digit', minute: '2-digit' });
+};
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;

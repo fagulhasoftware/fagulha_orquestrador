@@ -116,7 +116,13 @@ export class Sala {
     this.chats = new Chats(storage, id, projeto);
     this.memorias = new Memorias(storage, projeto);
     this.perguntas = new Perguntas(
-      (e) => this.emitir(e),
+      (e) => {
+        this.emitir(e);
+        if (e.tipo === 'perguntaResolvida')
+          void this.perguntas.esperar().then(() => {
+            if (this.fila.length) this.acionarProximo();
+          });
+      },
       (p) => storage.gravarDoChat('perguntas', this.chat.id, p.id, p),
       (agente, texto, usuario) =>
         this.mensagem(
@@ -585,6 +591,8 @@ export class Sala {
       this.parar();
       return;
     }
+    if (this.perguntas.bloqueada)
+      throw new Error('Responda ou pule a pergunta pendente antes de enviar uma mensagem.');
     if (!texto.trim() && !anexos.length) return;
     if (
       anexos.some(
@@ -610,7 +618,7 @@ export class Sala {
       a.estado = 'na_fila';
       this.emitir({ tipo: 'agente', agente: a });
     }
-    if (!this.tarefa) {
+    if (!this.tarefa && !this.perguntas.bloqueada) {
       this.tarefa = this.proximo().finally(() => {
         this.tarefa = undefined;
         if (this.fila.length) this.acionarProximo();
@@ -618,14 +626,14 @@ export class Sala {
     }
   }
   private acionarProximo(): void {
-    if (!this.tarefa)
+    if (!this.tarefa && !this.perguntas.bloqueada)
       this.tarefa = this.proximo().finally(() => {
         this.tarefa = undefined;
         if (this.fila.length) this.acionarProximo();
       });
   }
   private async proximo(): Promise<void> {
-    while (this.fila.length) {
+    while (this.fila.length && !this.perguntas.bloqueada) {
       const entrada = this.fila.shift()!,
         p = this.provedores.get(entrada.id);
       if (!p?.agente.habilitado) continue;
@@ -672,7 +680,10 @@ export class Sala {
           regras: preparada?.regras ?? [],
           anexos: anexos
             .slice(-20)
-            .map((x) => `${x.meta.nome}: ${x.meta.aviso ?? ''}\n${x.texto.slice(0, 12000)}`),
+            .map(
+              (x) =>
+                `Anexo id=${x.meta.id}; nome=${x.meta.nome}; tipo=${x.meta.tipo}; bytes=${x.meta.bytes}; tratamento=${x.meta.tratamento}. Use anexo_ler com o id ou nome unico. ${x.meta.aviso ?? ''}\n${x.texto.slice(0, 12000)}`,
+            ),
           contextos: [...this.contextos.values()].map((c) => `${c.meta.titulo}:\n${c.texto}`),
           memoria: contextoMemorias(this.memoriasLista, this.projeto),
         });

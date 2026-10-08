@@ -430,3 +430,11 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 .nuvem-voz summary { cursor: pointer; }
 .nuvem-voz[open] { padding: 6px 8px; border: 1px solid var(--borda); border-radius: var(--raio); }
 .aviso-privacidade { color: var(--alerta); }
+
+/* ---------- perguntas ancoradas na digitacao (0.3.2) ---------- */
+.composer .perguntas { padding: 0 0 8px; border-bottom: 0; max-height: 55vh; }
+#app.pergunta-pendente .lista, #app.pergunta-pendente .faixa, #app.pergunta-pendente .aprovacoes { opacity: .45; transition: opacity .2s; }
+#app.pergunta-pendente .composer .caixa { opacity: .7; }
+.cartao-pergunta .atalhos { margin-left: auto; }
+@media (max-width: 420px) { .cartao-pergunta .atalhos { display: none; } }
+@media (prefers-reduced-motion: reduce) { #app.pergunta-pendente .lista { transition: none; } }

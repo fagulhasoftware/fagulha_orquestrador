@@ -19,6 +19,7 @@ export interface PedidoExecucao {
   sessao?: string;
   ponte: PonteSessao;
   imagens?: { mime: string; base64: string }[];
+  caminhosImagens?: string[];
   ferramenta?: (nome: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 export interface EventosProvedor {

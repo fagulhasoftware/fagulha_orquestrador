@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { exportarMarkdown } from './core/horario';
 import { mkdir, readFile, writeFile, rm, stat, open } from 'node:fs/promises';
 import { Armazenamento } from './storage/sqlite';
 export { Armazenamento } from './storage/sqlite';
@@ -17,6 +18,8 @@ import { carregarManifestos, lerManifesto, criarProvedorManifesto } from './prov
 import { PonteHttp } from './mcp/ponte';
 import { ExecutorFerramentas } from './mcp/executor';
 import { Anexador } from './attachments/pipeline';
+import { imagensNativas } from './attachments/nativas';
+import { lerImagem } from './attachments/imagem';
 import {
   descobrirContextos,
   importarContexto,
@@ -183,15 +186,28 @@ export async function activate(
         for (const a of [...sala.anexos.values()]
           .filter((a) => enviados.has(a.meta.id) && a.meta.tipo === 'imagem' && a.arquivo)
           .slice(-4)) {
-          const mime = /\.jpe?g$/i.test(a.meta.nome)
-            ? 'image/jpeg'
-            : /\.webp$/i.test(a.meta.nome)
-              ? 'image/webp'
-              : /\.gif$/i.test(a.meta.nome)
-                ? 'image/gif'
-                : 'image/png';
-          imagens.push({ mime, base64: (await readFile(a.arquivo!)).toString('base64') });
+          const conteudo = await lerImagem(a.arquivo!, sala.config.limites.imagemMaxMB);
+          const imagem = conteudo.conteudoMcp.find((c) => c.type === 'image');
+          if (imagem?.type === 'image')
+            imagens.push({ mime: imagem.mimeType, base64: imagem.data });
         }
+      const mensagemAtual = [...sala.mensagens]
+        .reverse()
+        .find((m) => m.tipo === 'fala' && m.autor === sala.config.nick);
+      const atuais = new Set((mensagemAtual?.anexos ?? []).map((a) => a.id));
+      const caminhosImagens =
+        agente.tipo === 'cli' && ['claude', 'codex', 'gemini'].includes(agente.id)
+          ? await imagensNativas(
+              [...sala.anexos.values()].filter((a) => atuais.has(a.meta.id)),
+              sala.config.nivel,
+              diretorio,
+              sala.config.limites.imagemMaxMB,
+            )
+          : [];
+      if (caminhosImagens.length)
+        regras.push(
+          `Imagens da mensagem atual: ${JSON.stringify(caminhosImagens)}. Leia esses arquivos como imagem; nao sao transcricoes. Se a ferramenta nativa nao estiver disponivel, use anexo_ler com o id listado no contexto.`,
+        );
       return {
         regras,
         pedido: {
@@ -202,6 +218,7 @@ export async function activate(
             diretorio,
           },
           imagens,
+          caminhosImagens,
           ferramenta: (nome: string, args: Record<string, unknown>) =>
             executor.executar(agente.id, nome, args, sinal),
         },
@@ -212,6 +229,7 @@ export async function activate(
       };
     } catch (e) {
       capacidade.revogar();
+      await rm(diretorio, { recursive: true, force: true });
       throw e;
     }
   };
@@ -260,11 +278,7 @@ export async function activate(
     });
     if (!uri) return;
     const real = await caminhoReal(uri.fsPath, true);
-    await writeFile(
-      real,
-      mascarar(mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n')),
-      'utf8',
-    );
+    await writeFile(real, exportarMarkdown(mensagens), 'utf8');
   };
   const login = new GestorLogin({
     provedor: (id) => sala.provedores.get(id),

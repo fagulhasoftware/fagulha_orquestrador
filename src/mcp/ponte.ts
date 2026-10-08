@@ -2,6 +2,8 @@ import { createServer, type Server } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { validarArgumentos } from './ferramentas';
 import { AcaoRecusada } from '../permissions/portao';
+import { ErroFerramenta } from './erros';
+import { mascarar } from '../core/seguranca';
 export interface Capacidade {
   agente: string;
   sinal: AbortSignal;
@@ -66,8 +68,11 @@ export class PonteHttp {
         try {
           pedido = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           args = validarArgumentos(pedido.nome, pedido.args);
-        } catch {
-          responder(400, { codigo: 'argumentos_invalidos' });
+        } catch (e) {
+          responder(400, {
+            codigo: 'argumentos_invalidos',
+            mensagem: e instanceof ErroFerramenta ? mascarar(e.message) : undefined,
+          });
           return;
         }
         const sinal = AbortSignal.any([capacidade.sinal, desconectado.signal]);
@@ -89,7 +94,11 @@ export class PonteHttp {
             cancelada: 'execucao_encerrada',
           }[e.motivo];
           responder(403, { codigo });
-        } else responder(500, { codigo: 'ferramenta_falhou' });
+        } else
+          responder(500, {
+            codigo: 'ferramenta_falhou',
+            mensagem: e instanceof ErroFerramenta ? mascarar(e.message) : undefined,
+          });
       } finally {
         clearTimeout(timer);
       }

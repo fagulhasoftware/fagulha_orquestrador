@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## 0.3.2
+
+- Horários exibidos no fuso local, incluindo exportação em Markdown; armazenamento permanece em UTC.
+- Imagens de anexos e arquivos chegam como conteúdo de imagem pelo MCP. Anexos aparecem com ID, nome, tipo e tamanho no contexto; leitura também aceita nome único.
+- Diagnósticos específicos para anexos ausentes, nomes ambíguos, limites e tipos inválidos, sem divulgar erros internos ou segredos.
+- Imagens da mensagem atual são fornecidas às CLIs nos níveis Parcial/Total; Manual mantém leitura via MCP e aprovação.
+- Perguntas guiadas ficam junto à digitação; a fila aguarda a resposta ou o cancelamento e novos envios são recusados durante a espera.
+
 ## 0.3.1
 
 - Registros de execução ficam recolhidos em uma linha, inclusive ações isoladas e resultados longos. Clique para consultar o conteúdo completo.

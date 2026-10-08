@@ -1,4 +1,5 @@
 import { esquemaPergunta } from '../core/perguntas';
+import { ErroFerramenta } from './erros';
 export const ferramentas = [
   {
     name: 'perguntar_usuario',
@@ -91,7 +92,7 @@ export const ferramentas = [
   },
   {
     name: 'anexo_ler',
-    description: 'Ler texto ou amostra de um anexo enviado.',
+    description: 'Ler anexo enviado por id ou nome unico; imagens retornam conteudo MCP image.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -101,7 +102,8 @@ export const ferramentas = [
   },
   {
     name: 'arquivo_ler',
-    description: 'Ler arquivo de texto pelo Portao; arquivos protegidos sao recusados.',
+    description:
+      'Ler texto ou imagem (png, jpg, webp, gif ate 10 MB) pelo Portao; arquivos protegidos sao recusados.',
     inputSchema: {
       type: 'object',
       properties: { caminho: { type: 'string' } },
@@ -155,17 +157,18 @@ export type NomeFerramenta = (typeof ferramentas)[number]['name'];
 export function validarArgumentos(nome: string, entrada: unknown): Record<string, unknown> {
   if (nome === 'perguntar_usuario') return esquemaPergunta.parse(entrada);
   const ferramenta = ferramentas.find((f) => f.name === nome);
+  if (entrada == null && ferramenta && !('required' in ferramenta.inputSchema)) entrada = {};
   if (!ferramenta || !entrada || typeof entrada !== 'object' || Array.isArray(entrada))
-    throw new Error('Ferramenta ou argumentos invalidos.');
+    throw new ErroFerramenta('Ferramenta ou argumentos invalidos.');
   const args = entrada as Record<string, unknown>;
   const schema = ferramenta.inputSchema as {
     properties: Record<string, { type: string; maxLength?: number; enum?: readonly string[] }>;
     required?: readonly string[];
   };
   for (const chave of Object.keys(args))
-    if (!schema.properties[chave]) throw new Error('Argumento desconhecido.');
+    if (!schema.properties[chave]) throw new ErroFerramenta('Argumento desconhecido.');
   for (const chave of schema.required ?? [])
-    if (!(chave in args)) throw new Error(`Argumento obrigatorio: ${chave}`);
+    if (!(chave in args)) throw new ErroFerramenta(`Argumento obrigatorio: ${chave}`);
   for (const [chave, valor] of Object.entries(args)) {
     const p = schema.properties[chave];
     if (
@@ -173,7 +176,7 @@ export function validarArgumentos(nome: string, entrada: unknown): Record<string
       (typeof valor === 'string' && valor.length > (p.maxLength ?? 10000)) ||
       (p.enum && !p.enum.includes(String(valor)))
     )
-      throw new Error(`Argumento invalido: ${chave}`);
+      throw new ErroFerramenta(`Argumento invalido: ${chave}`);
   }
   return args;
 }

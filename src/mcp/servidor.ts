@@ -4,14 +4,16 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { ferramentas } from './ferramentas';
 import { chamarPonte, FalhaPonte } from './cliente-ponte';
 import { diagnosticos } from './diagnostico';
+import { eConteudoImagem } from '../attachments/imagem';
 const servidor = new Server(
-  { name: 'fagulha_orquestrador', version: '0.3.0' },
+  { name: 'fagulha_orquestrador', version: '0.3.2' },
   { capabilities: { tools: {} } },
 );
 servidor.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ferramentas }));
 servidor.setRequestHandler(CallToolRequestSchema, async (pedido) => {
   try {
     const resultado = await chamarPonte(pedido.params.name, pedido.params.arguments ?? {});
+    if (eConteudoImagem(resultado)) return { content: resultado.conteudoMcp };
     return { content: [{ type: 'text' as const, text: JSON.stringify(resultado) }] };
   } catch (e) {
     return {
