@@ -85,12 +85,12 @@ test('nick usa usuario do sistema, fallback Voce, preserva configuracao salva', 
   }
 });
 
-test('Gemini possui nome publico correto e preserva aliases', () => {
+test('Gemini possui nome publico correto sem aliases Antigravity', () => {
   const p = new ProvedorCli('gemini', async () => {
     assert.fail('terminal proibido');
   });
   assert.equal(p.agente.nick, 'Gemini');
-  assert.deepEqual(p.agente.apelidos, ['gemini', 'ag', 'antigravity']);
+  assert.deepEqual(p.agente.apelidos, []); // @ag e @antigravity agora pertencem ao provedor proprio.
 });
 
 for (const conteudo of [

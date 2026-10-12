@@ -22,7 +22,7 @@ export interface RegistroIntegracao {
   url?: string;
   comando?: string;
   args?: string[];
-  autenticacao: 'token' | 'nenhuma';
+  autenticacao: 'token' | 'nenhuma' | 'oauth' | 'oauth_cliente_proprio';
   ativa: boolean;
   conectada?: boolean;
   revisao?: string;

@@ -21,7 +21,10 @@ import type {
 export const opcoesConexao = z
   .object({
     token: z.string().min(1).max(8192).optional(),
-    autenticacao: z.enum(['token', 'nenhuma']).optional(),
+    autenticacao: z.enum(['token', 'nenhuma', 'oauth', 'oauth_cliente_proprio']).optional(),
+    clientId: z.string().min(1).max(2048).optional(),
+    clientSecret: z.string().min(1).max(8192).optional(),
+    issuer: z.string().url().max(2048).optional(),
     somenteLeitura: z.boolean().optional(),
     readOnly: z.boolean().optional(),
     projectRef: z
@@ -37,7 +40,7 @@ export const personalizadaSchema = z
     transporte: z.enum(['http', 'sse', 'stdio']).default('http'),
     comando: z.string().min(1).max(2048).optional(),
     args: z.array(z.string().max(2048)).max(40).optional(),
-    autenticacao: z.enum(['token', 'nenhuma']).default('nenhuma'),
+    autenticacao: z.enum(['token', 'nenhuma', 'oauth', 'oauth_cliente_proprio']).default('nenhuma'),
   })
   .strict();
 export interface PersistenciaIntegracoes {
@@ -150,7 +153,7 @@ export class Integracoes {
     return itens.map((c) => {
       const r = this.registros.get(c.id);
       const autenticacao =
-        r?.autenticacao ?? (c.autenticacao.includes('token') ? 'token' : c.autenticacao[0]);
+        r?.autenticacao ?? c.autenticacao[0];
       return {
         id: c.id,
         nome: c.nome,
@@ -166,7 +169,30 @@ export class Integracoes {
             : (c.url ?? '')),
         transporte: r?.transporte ?? 'http',
         autenticacao,
+        autenticacoes: c.autenticacao,
         campos: [
+          ...(autenticacao === 'oauth_cliente_proprio'
+            ? [
+                {
+                  chave: 'clientId',
+                  rotulo: 'OAuth Client ID',
+                  tipo: 'texto' as const,
+                  obrigatorio: true,
+                },
+                {
+                  chave: 'clientSecret',
+                  rotulo: 'OAuth Client secret',
+                  tipo: 'segredo' as const,
+                  obrigatorio: true,
+                },
+                {
+                  chave: 'issuer',
+                  rotulo: 'OAuth issuer (optional)',
+                  tipo: 'url' as const,
+                  obrigatorio: false,
+                },
+              ]
+            : []),
           ...(autenticacao === 'token'
             ? [
                 {
@@ -215,7 +241,7 @@ export class Integracoes {
         mensagem:
           this.erros.get(c.id) ??
           (c.fase === 'b'
-            ? 'OAuth is planned for phase 0.4.0-b.'
+            ? 'Conecte pelo navegador. Disponibilidade depende da conta e do servidor.'
             : c.id === 'personalizada'
               ? 'Use Add integration to configure a custom server.'
               : undefined),
@@ -235,7 +261,7 @@ export class Integracoes {
       const p = personalizadaSchema.parse(entrada);
       if (
         p.transporte === 'stdio'
-          ? !p.comando || p.url || p.autenticacao === 'token'
+          ? !p.comando || p.url || p.autenticacao !== 'nenhuma'
           : !p.url || p.comando || p.args
       )
         throw new ErroFerramenta(
@@ -278,8 +304,6 @@ export class Integracoes {
         c = catalogo.find((x) => x.id === id);
       if ((!existente && !c) || id === 'personalizada')
         throw new ErroFerramenta('Integracao nao encontrada.');
-      if (c?.fase === 'b')
-        throw new ErroFerramenta('Esta integracao requer OAuth, disponivel na fase 0.4.0-b.');
       const r: RegistroIntegracao = {
         ...(existente ?? {
           id,
@@ -287,7 +311,7 @@ export class Integracoes {
           personalizada: false,
           transporte: 'http' as const,
           url: c!.url,
-          autenticacao: 'token' as const,
+          autenticacao: c!.autenticacao[0],
           ativa: false,
         }),
         ativa: true,
@@ -297,6 +321,13 @@ export class Integracoes {
       if (o.autenticacao) r.autenticacao = o.autenticacao;
       if (c && !c.autenticacao.includes(r.autenticacao))
         throw new ErroFerramenta('Autenticacao nao suportada por esta integracao.');
+      if (r.url?.includes('{tenantId}'))
+        throw new ErroFerramenta('Microsoft 365 exige endpoint do seu tenant. Adicione uma integracao personalizada com a URL fornecida pelo administrador.');
+      if (r.autenticacao === 'oauth_cliente_proprio') {
+        const salvo = await this.segredos.get(`fagulha.integracao.${id}.oauth.client`);
+        if (!o.clientId && !salvo)
+          throw new ErroFerramenta('Este servico exige um aplicativo OAuth proprio. Informe Client ID e secret e cadastre http://127.0.0.1:43219/oauth/callback.');
+      }
       if (r.url) r.url = urlIntegracao(r.url);
       if (id === 'supabase') {
         const u = new URL(existente?.url ?? c!.url!);
@@ -312,6 +343,17 @@ export class Integracoes {
       if (r.autenticacao === 'token' && !token)
         throw new ErroFerramenta('Informe um token para conectar.');
       if (token) protegerSegredo(token);
+      if (o.clientId) {
+        if (o.clientSecret) protegerSegredo(o.clientSecret);
+        await this.segredos.store(
+          `fagulha.integracao.${id}.oauth.client`,
+          JSON.stringify({
+            client_id: o.clientId,
+            client_secret: o.clientSecret,
+            ...(o.issuer ? { issuer: o.issuer } : {}),
+          }),
+        );
+      }
       if (
         token &&
         r.url &&
@@ -347,13 +389,13 @@ export class Integracoes {
       } catch (e) {
         await conexao?.fechar().catch(() => {});
         const msg =
-          e instanceof ErroFerramenta
-            ? mascarar(e.message)
+          e instanceof Error
+            ? mascarar(e.message).slice(0, 1200)
             : 'Falha ao validar ferramentas ou autenticar no servidor MCP.';
         this.conectando.delete(id);
         this.erros.set(
           id,
-          'Unable to connect to the MCP server. Check authentication, endpoint and timeout.',
+          msg,
         );
         this.avisar(id);
         throw new ErroFerramenta(msg);
@@ -371,6 +413,8 @@ export class Integracoes {
       }
       await this.fechar(id);
       await this.segredos.delete?.(chave(id));
+      await this.segredos.delete?.(`fagulha.integracao.${id}.oauth.tokens`);
+      await this.segredos.delete?.(`fagulha.integracao.${id}.oauth.client`);
       this.erros.delete(id);
       this.avisar(id);
     });

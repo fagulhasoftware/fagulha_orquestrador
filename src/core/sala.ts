@@ -73,6 +73,7 @@ interface Persistida {
   ultimo_chat?: string;
 }
 export class Sala {
+  private pausado?: { id: string; chat: string };
   integracoesConectadas = 0;
   skillsAtivas = 0;
   readonly provedores = new Map<string, Provedor>();
@@ -592,7 +593,21 @@ export class Sala {
   enviar(texto: string, anexos: string[]): void {
     if (this.trocando) throw new Error('Aguarde a troca de chat terminar.');
     // Stop command in every supported language.
+    if (texto.trim().toLowerCase() === '/pausar') {
+      this.pausado = this.atual ? { id: this.atual.id, chat: this.chat.id } : undefined;
+      this.parar();
+      return;
+    }
+    if (texto.trim().toLowerCase() === '/continuar') {
+      const id = this.pausado?.chat === this.chat.id ? this.pausado.id : undefined;
+      this.pausado = undefined;
+      if (id) {
+        void this.esperar().then(() => this.acionar(id, 0));
+      } else this.mensagem(this.config.nick, 'Nenhum agente pausado para continuar.', 'acao');
+      return;
+    }
     if (['/parar', '/stop', '/detener', '/stoppen'].includes(texto.trim().toLowerCase())) {
+      this.pausado = undefined;
       this.parar();
       return;
     }

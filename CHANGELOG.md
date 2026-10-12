@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.8
+
+- Re-register dynamic OAuth clients on a fresh interactive login without saved tokens; preserve explicitly configured OAuth clients.
+- Clarify that the remote Figma MCP requires an approved client, based on a live registration rejection and the vendor documentation.
+- Validate browser authorization and live MCP tool discovery for Supabase, Canva and Notion; record provider-specific blockers separately.
+
+## 0.4.7
+
+- Close browser preconnection sockets when finishing MCP OAuth so callback cleanup cannot leave the integration stuck connecting.
+- Change the browser callback confirmation to distinguish received authorization from a validated MCP connection.
+- Add regression coverage for a browser socket opened without an HTTP request.
+
+## 0.4.6
+
+- Use the Canva MCP endpoint with dynamic OAuth registration and browser sign-in by default, without requiring user API credentials.
+
+## 0.4.5
+
+- Fix Mistral delegated browser authentication: send start/complete actions and attempt IDs in ACP `_meta`, matching the installed official client protocol.
+- Require completion of the original attempt and successful credential persistence before confirming login; report local persistence failure separately.
+- Regression fixtures now reject misplaced authentication fields and cover mismatched attempts and failed persistence.
+
+## 0.4.4
+
+- Separate native-account authentication from API-key participants; remove Console/API login choices from Claude/Codex account participants and show authentication source in the UI and room context.
+- Remove inherited model credentials from CLI environments and enforce account-only Claude/Codex sessions with authentication preflight before inference. Prefer the installed Claude extension runtime over an older PATH binary.
+- Add Mistral Vibe and Mistral Code Enterprise ACP participants with independent browser-login profiles, native status, streaming, session resume, room MCP, single-call permission handling and process cancellation.
+- Isolate Mistral profiles from the global Vibe keyring and reject environment/global credentials. ACP initially requires Total/read-write on Windows/Linux; macOS refuses until native Keychain isolation is supported.
+- Add a separate Mistral API participant with its own SecretStorage key, endpoint, model and shared tool gateway.
+
+## 0.4.3
+
+- Show application icons in the integration catalog, native Codex resources and specialist suggestions; include native app descriptions.
+- Default Supabase to browser OAuth; require a registered OAuth client for GitHub browser login and clarify provider prerequisites.
+- Rebuild authentication fields when the method changes and clear secret inputs on switching, submission and cancellation.
+- Honor MCP authentication challenges and scopes; allow SDK OAuth discovery and refresh across authorization-server origins without forwarding manual bearer tokens.
+- Show masked connection diagnostics and disable incomplete Microsoft tenant endpoints.
+
+## 0.4.2
+
+- Separate `@participants`, `#specialists` and `/room commands`, with autocomplete.
+- Preserve native Codex Apps and Claude/Antigravity skills/plugins in Total; show actual Codex app metadata separately from shared MCP connections.
+- Implement MCP OAuth browser authentication with PKCE, state checks and SecretStorage; remove the placeholder OAuth phase rejection.
+- Implement local skill discovery, imports, activation and `skill_ler` for shared use.
+- Add pause/resume by room context and preserve existing restrictive permission modes.
+
+## 0.4.1
+
+- Independent Antigravity CLI participant (`@antigravity`, `@ag`, `@agy`); Gemini aliases no longer impersonate Antigravity.
+- Total/read-write execution; unsupported restrictive modes fail closed pending isolation validation.
+- Dedicated Chrome/Edge browser with navigation, page state, form fill, confirmed clicks and PNG screenshots through the room MCP.
+- Browser uses a temporary profile and closes with the room; no personal browser session is attached.
+
 ## 0.4.0 — Phase A (local preparation, not published)
 
 - Complete integration catalog and token connections for GitHub, Supabase and custom HTTP/SSE MCP servers; local stdio servers are also supported.

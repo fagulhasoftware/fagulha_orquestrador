@@ -58,8 +58,6 @@ export async function mensagemIntegracao(
       await gestor.remover(m.id);
       return true;
     case 'adicionarIntegracaoPersonalizada':
-      if (!['token', 'nenhuma'].includes(m.autenticacao))
-        throw new ErroFerramenta('OAuth is planned for phase 0.4.0-b.');
       await gestor.adicionar({
         nome: m.nome,
         transporte: m.transporte,
@@ -67,14 +65,6 @@ export async function mensagemIntegracao(
         ...(m.transporte === 'stdio' ? separarComando(m.endpoint) : { url: m.endpoint }),
       });
       return true;
-    case 'listarSkills':
-      emitir({ tipo: 'skills', lista: [] });
-      return true;
-    case 'importarSkill':
-    case 'alternarSkill':
-    case 'removerSkill':
-    case 'verSkill':
-      throw new ErroFerramenta('Skills are planned for phase 0.4.0-c.');
     default:
       return false;
   }

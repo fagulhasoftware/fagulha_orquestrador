@@ -79,6 +79,7 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[])
         mock,
         `
    const fs=require('fs');const args=process.argv.slice(2);
+   if(args.includes('status')){console.log(args.includes('auth')?JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'fixture@example.test'}):'Logged in using ChatGPT');process.exit(0);}
    if(args.includes('--version')){console.log('fixture 1');process.exit(0);}
    if(args[0]==='mcp'){console.log('[]');process.exit(0);}
    (async()=>{
@@ -93,6 +94,7 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[])
      for(const [nome,valor] of Object.entries(cfg.env)) env[nome]=valor.startsWith('$'+'{')?process.env[valor.slice(2,-1)]:valor;
      if(JSON.stringify(cfg).includes(process.env.ORQUESTRA_BRIDGE_TOKEN)) throw Error('token gravado na configuracao');
     }
+    if(args.includes('status')){console.log(args.includes('auth')?JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'fixture@example.test'}):'Logged in using ChatGPT');process.exit(0);}
     const {Client}=require(${JSON.stringify(require.resolve('@modelcontextprotocol/sdk/client/index.js'))});
     const {StdioClientTransport}=require(${JSON.stringify(require.resolve('@modelcontextprotocol/sdk/client/stdio.js'))});
     const cliente=new Client({name:'fixture',version:'1'});

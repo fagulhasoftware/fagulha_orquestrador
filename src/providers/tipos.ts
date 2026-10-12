@@ -56,6 +56,7 @@ export function agentePadrao(
     id,
     nick,
     tipo,
+    autenticacaoModo: tipo === 'api' ? 'api' : 'conta',
     cor,
     apelidos,
     origem: 'embutido',

@@ -10,7 +10,9 @@ import { Sala, chaveSala } from './core/sala';
 import { validarMensagem } from './core/protocolo';
 import { montarHtml } from './core/webview';
 import { mascarar, caminhoReal, protegerSegredo } from './core/seguranca';
-import { ProvedorCli } from './providers/cli';
+import { ProvedorCli, localizar } from './providers/cli';
+import { ProvedorMistral } from './providers/mistral';
+import { appsCodex } from './providers/recursos';
 import { ProvedorApi, type ApiId, type OpcoesApi } from './providers/api';
 import { GestorLogin } from './providers/login';
 import type { Provedor } from './providers/tipos';
@@ -19,6 +21,9 @@ import { PonteHttp } from './mcp/ponte';
 import { ExecutorFerramentas } from './mcp/executor';
 import { Integracoes } from './integrations/gestor';
 import { mensagemIntegracao } from './integrations/mensagens';
+import { conectarMcp } from './integrations/cliente';
+import { OAuthMcp } from './integrations/oauth';
+import { Skills } from './skills/gestor';
 import { ferramentas } from './mcp/ferramentas';
 import type { RegistroIntegracao } from './integrations/tipos';
 import { Anexador } from './attachments/pipeline';
@@ -91,7 +96,7 @@ export async function activate(
     }
     sala.registrar(p);
   };
-  for (const id of ['claude', 'codex', 'gemini'] as const)
+  for (const id of ['claude', 'codex', 'gemini', 'antigravity'] as const)
     registrar(
       new ProvedorCli(
         id,
@@ -107,8 +112,15 @@ export async function activate(
     'openai-compativel',
     'anthropic',
     'gemini-api',
+    'mistral-api',
   ] as ApiId[])
     registrar(new ProvedorApi(id, context.secrets, () => opcoes(id), pedirChave));
+  for (const id of ['mistral-vibe', 'mistral-enterprise'] as const)
+    registrar(new ProvedorMistral(id, join(pasta, 'contas', id), context.secrets, () => opcoes(id), async (titulo, sinal) => {
+      try {
+        return await sala.portao.executar({ agente: id, modo: 'leitura_escrita', categoria: 'irreversivel_externo', resumo: titulo, detalhe: 'Permissao nativa ACP solicitada pelo Mistral; autorizacao vale apenas para esta chamada.' }, async () => true, sinal);
+      } catch { return false; }
+    }));
   // Manifests sao codigo executavel: carregar somente apos confianca no workspace.
   if (vscode.workspace.isTrusted)
     for (const m of await carregarManifestos(join(homedir(), '.orquestra', 'provedores')))
@@ -138,6 +150,41 @@ export async function activate(
       throw new Error('Nao foi possivel abrir navegador.');
   };
   const views = new Set<vscode.Webview>();
+  const skills = new Skills(
+    join(pasta, 'skills'),
+    [
+      join(homedir(), '.agents', 'skills'),
+      join(homedir(), '.codex', 'skills'),
+      join(homedir(), '.claude', 'skills'),
+      join(homedir(), '.gemini', 'skills'),
+      join(homedir(), '.codex', 'plugins', 'cache'),
+      join(homedir(), '.claude', 'plugins', 'cache'),
+      join(homedir(), '.gemini', 'config', 'plugins'),
+      ...(projeto ? [join(projeto, '.agents', 'skills'), join(projeto, '.claude', 'skills')] : []),
+    ],
+    async () => (await storage.obter<string[]>('globais', '', 'skills-desativadas')) ?? [],
+    async (nomes) => {
+      await storage.gravar('globais', '', 'skills-desativadas', nomes);
+    },
+  );
+  if (vscode.workspace.isTrusted) await skills.listar();
+  const listarNativos = async (webview: vscode.Webview) => {
+    if (!vscode.workspace.isTrusted) return;
+    try {
+      const bin = await localizar('codex', opcoes('codex').comando);
+      if (!bin) throw new Error('Codex CLI nao encontrado.');
+      await webview.postMessage({
+        tipo: 'recursosNativos',
+        lista: await appsCodex(bin),
+      } satisfies DoHost);
+    } catch (e) {
+      await webview.postMessage({
+        tipo: 'recursosNativos',
+        lista: [],
+        diagnostico: mascarar(e instanceof Error ? e.message : 'Catalogo nativo indisponivel.'),
+      } satisfies DoHost);
+    }
+  };
   const integracoes = new Integracoes(
     {
       ler: async () =>
@@ -153,6 +200,21 @@ export async function activate(
       for (const v of views) void v.postMessage(e);
       sala.estadoCompleto();
     },
+    async (r, token) => {
+      if (!['oauth', 'oauth_cliente_proprio'].includes(r.autenticacao))
+        return conectarMcp(r, token);
+      const oauth = new OAuthMcp(r.id, context.secrets, async (url) => {
+        if (!(await vscode.env.openExternal(vscode.Uri.parse(url))))
+          throw new Error('Nao foi possivel abrir login OAuth.');
+      }, undefined, r.autenticacao === 'oauth');
+      try {
+        await oauth.iniciar();
+        await oauth.autorizar(r.url!);
+        return await conectarMcp(r, undefined, 15000, oauth);
+      } finally {
+        await oauth.fechar();
+      }
+    },
   );
   await integracoes.iniciar();
   const executor = new ExecutorFerramentas(
@@ -161,6 +223,7 @@ export async function activate(
     abrir,
     join(pasta, 'sessoes'),
     integracoes,
+    skills,
   );
   const ponte = new PonteHttp(
     (id, nome, args, sinal) => executor.executar(id, nome, args, sinal),
@@ -198,6 +261,42 @@ export async function activate(
     const diretorio = join(pasta, 'sessoes', sala.chat.id, agente.id, randomUUID());
     const regras: string[] = [];
     try {
+      const lista = await skills.listar();
+      regras.push(
+        'Skills disponiveis via skill_ler (use #nome): ' +
+          lista
+            .filter((s) => s.ativa)
+            .map((s) => `${s.nome}: ${s.descricao.slice(0, 80)}`)
+            .join('\n')
+            .slice(0, 40000),
+      );
+      const atual =
+        [...sala.mensagens].reverse().find((m) => m.tipo === 'fala' && m.autor === sala.config.nick)
+          ?.texto ?? '';
+      const selecionadas = [...atual.matchAll(/(?:^|\s)#([\p{L}\p{N}_:-]+)/gu)].map((m) =>
+        m[1].toLowerCase(),
+      );
+      for (const nome of new Set(selecionadas)) {
+        if (lista.some((s) => s.nome === nome && s.ativa))
+          regras.push(
+            `Skill solicitada #${nome}:\n${await executor.executar(agente.id, 'skill_ler', { nome }, sinal)}`,
+          );
+        else {
+          const i = integracoes.listar().find((i) => i.id === nome);
+          if (i)
+            regras.push(
+              `Integracao solicitada #${nome}: ${i.estado}, ${i.ativa ? 'ativa' : 'inativa'}. Se indisponivel na ponte, procure o recurso nativo deste agente e informe autenticacao necessaria; nao invente resultados.`,
+            );
+          else if (nome === 'code-review')
+            regras.push(
+              'Especialidade #code-review: revise o diff relevante para bugs, regressao, isolamento, seguranca e contratos. Apresente achados com arquivo e linha, prioridade e cenario concreto. Nao implemente correcoes sem pedido. Use skill nativa de revisao se instalada. Nao e servico externo nem exige conta.',
+            );
+          else
+            regras.push(
+              `Especialista solicitado #${nome}: procurar nas skills/plugins/Apps nativos. Nao registrado na ponte compartilhada.`,
+            );
+        }
+      }
       if (projeto && agente.modo !== 'escrita')
         for (const nome of ['AGENTS.md', 'CLAUDE.md', join('orquestra', 'MEMORIA.md')]) {
           const caminho = join(projeto, nome);
@@ -362,7 +461,11 @@ export async function activate(
             tipo: 'integracoes',
             lista: integracoes.listar(),
           } satisfies DoHost);
-          await webview.postMessage({ tipo: 'skills', lista: [] } satisfies DoHost);
+          await webview.postMessage({
+            tipo: 'skills',
+            lista: vscode.workspace.isTrusted ? await skills.listar() : [],
+          } satisfies DoHost);
+          void listarNativos(webview);
           return;
         }
         if (
@@ -419,6 +522,98 @@ export async function activate(
         )
           return;
         switch (m.tipo) {
+          case 'listarRecursosNativos':
+            await listarNativos(webview);
+            break;
+          case 'listarSkills':
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'alternarSkill':
+            await skills.alternar(m.nome, m.ativa);
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'verSkill':
+            await webview.postMessage({
+              tipo: 'skill',
+              nome: m.nome,
+              conteudo: await skills.ler(m.nome, true),
+            } satisfies DoHost);
+            break;
+          case 'removerSkill':
+            await skills.remover(m.nome);
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'importarSkill': {
+            const temporaria = join(pasta, 'skill-import', randomUUID());
+            if (m.origem === 'github') {
+              const url = new URL(m.url!);
+              const partes = url.pathname.split('/').filter(Boolean);
+              if (
+                url.hostname !== 'github.com' ||
+                url.protocol !== 'https:' ||
+                url.username ||
+                url.password ||
+                url.search ||
+                partes[2] !== 'tree' ||
+                partes.length < 5 ||
+                !partes.slice(0, 2).every((p) => /^[\w.-]+$/.test(p)) ||
+                !partes.slice(3).every((p) => p !== '.' && p !== '..' && /^[\w.-]+$/.test(p))
+              )
+                throw new Error(
+                  'Use URL GitHub https://github.com/dono/repo/tree/ref/pasta-da-skill.',
+                );
+              const resposta = await fetch(
+                `https://codeload.github.com/${partes[0]}/${partes[1]}/zip/refs/heads/${partes[3]}`,
+                { redirect: 'error', signal: AbortSignal.timeout(30000) },
+              );
+              if (!resposta.ok) throw new Error('Nao foi possivel baixar a skill do GitHub.');
+              const chunks: Uint8Array[] = [];
+              let bytes = 0;
+              for await (const c of resposta.body as unknown as AsyncIterable<Uint8Array>) {
+                bytes += c.length;
+                if (bytes > 5 * 1024 * 1024) {
+                  throw new Error('Repositorio excede 5 MB. Importe a pasta ou ZIP da skill.');
+                }
+                chunks.push(c);
+              }
+              await mkdir(temporaria, { recursive: true });
+              const zip = join(temporaria, 'skill.zip');
+              try {
+                await writeFile(zip, Buffer.concat(chunks));
+                await skills.importarZip(
+                  zip,
+                  join(temporaria, 'extraido'),
+                  partes.slice(4).join('/'),
+                );
+              } finally {
+                await rm(temporaria, { recursive: true, force: true });
+              }
+            } else {
+              const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFolders: m.origem === 'pasta',
+                canSelectFiles: m.origem === 'zip',
+                ...(m.origem === 'zip' ? { filters: { ZIP: ['zip'] } } : {}),
+              });
+              if (!uris?.[0]) break;
+              if (m.origem === 'pasta') await skills.importar(uris[0].fsPath);
+              else await skills.importarZip(uris[0].fsPath, temporaria);
+            }
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          }
           case 'responderPergunta':
             sala.perguntas.responder(m.id, m.respostas);
             break;
@@ -744,6 +939,7 @@ export async function activate(
     broadcast();
     await sala.esperar();
     await ponte.finalizar();
+    await executor.fecharNavegadores();
     await integracoes.finalizar();
     await storage.finalizar();
   };

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Provedor, PedidoExecucao, EventosProvedor, Deteccao } from './tipos';
 import { agentePadrao, type Segredos } from './tipos';
 import { rodar } from './processo';
+import { ambienteConta, argsConta } from './autenticacao';
 import type { EstadoLogin, ModoAgente, NivelPermissao } from '../shared/protocolo';
 import { mascarar, protegerSegredo } from '../core/seguranca';
 import { faseFerramenta, detalheFase } from '../core/fases';
@@ -19,7 +20,7 @@ import {
   type McpHerdado,
 } from './codex-mcp';
 
-export type CliId = 'claude' | 'codex' | 'gemini';
+export type CliId = 'claude' | 'codex' | 'gemini' | 'antigravity';
 export function montarArgumentos(
   id: CliId,
   modo: ModoAgente,
@@ -31,6 +32,22 @@ export function montarArgumentos(
   herdados: McpHerdado[] = [],
 ): string[] {
   const leitura = nivel === 'manual' || modo === 'leitura';
+  if (id === 'antigravity') {
+    if (nivel !== 'total' || modo !== 'leitura_escrita')
+      throw new Error(
+        'Antigravity requer Total e leitura_escrita: isolamento nativo de Manual, Parcial e modos restritos ainda nao comprovado.',
+      );
+    const args = [
+      '--input-format',
+      'stream-json',
+      '--new-project',
+      '--output-format',
+      'stream-json',
+      '--dangerously-skip-permissions',
+    ];
+    if (sessao) args.push('--conversation', sessao);
+    return args;
+  }
   if (id === 'claude') {
     const args = [
       '-p',
@@ -41,16 +58,15 @@ export function montarArgumentos(
       leitura ? 'plan' : 'acceptEdits',
       '--permission-prompt-tool',
       'mcp__fagulha_orquestrador__aprovar',
-      '--setting-sources',
-      '',
-      '--disable-slash-commands',
       '--mcp-config',
       config,
-      '--strict-mcp-config',
     ];
+    if (nivel !== 'total')
+      args.push('--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands');
     if (nivel === 'manual')
       args.push('--tools', '', '--allowedTools', 'mcp__fagulha_orquestrador__*');
     if (modo === 'escrita') args.push('--disallowedTools', 'Read', 'Glob', 'Grep');
+    args.push(...argsConta(id));
     if (sessao) args.push('--resume', sessao);
     return args;
   }
@@ -69,6 +85,7 @@ export function montarArgumentos(
         ]
       : ['exec', '--json', '--skip-git-repo-check', '--sandbox', sandbox];
     args.push(...isolamentoMcp(herdados, nivel).args);
+    args.push(...argsConta(id));
     args.push(
       '-c',
       'approval_policy="never"',
@@ -80,16 +97,13 @@ export function montarArgumentos(
       'sandbox_workspace_write.exclude_tmpdir_env_var=true',
       '-c',
       'sandbox_workspace_write.exclude_slash_tmp=true',
+      ...(!total ? ['-c', 'features.js_repl=false', '-c', 'features.multi_agent=false'] : []),
       '-c',
-      'features.js_repl=false',
-      '-c',
-      'features.multi_agent=false',
-      '-c',
-      'features.apps=false',
+      `features.apps=${total}`,
       '-c',
       `web_search="${total ? 'live' : 'disabled'}"`,
       '-c',
-      'project_doc_max_bytes=0',
+      `project_doc_max_bytes=${total ? 65536 : 0}`,
       '-c',
       `mcp_servers.fagulha_orquestrador.command=${tomlString(node)}`,
       '-c',
@@ -105,7 +119,7 @@ export function montarArgumentos(
       '-c',
       `mcp_servers.fagulha_orquestrador.env_vars=${JSON.stringify(['ORQUESTRA_BRIDGE_URL', 'ORQUESTRA_BRIDGE_TOKEN', 'ELECTRON_RUN_AS_NODE'])}`,
     );
-    if (nivel === 'manual' || total)
+    if (nivel === 'manual')
       args.push('-c', 'features.shell_tool=false', '-c', 'features.unified_exec=false');
     if (nivel === 'manual') args.push('-c', 'features.apply_patch_freeform=false');
     args.push('-');
@@ -144,12 +158,20 @@ export async function localizar(
     return /\.[cm]?js$/i.test(configurado)
       ? { cmd: process.execPath, prefixo: [configurado] }
       : { cmd: configurado, prefixo: [] };
+  if (id === 'claude') {
+    const atual = await localizarExtensao(id);
+    if (atual) return atual;
+  }
   const dirs = (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':');
+  if (id === 'antigravity') dirs.unshift(join(homedir(), '.gemini', 'bin'));
   if (process.platform === 'win32') dirs.unshift(join(homedir(), '.local', 'bin'));
   for (const d of dirs) {
-    const exe = join(d, id + (process.platform === 'win32' ? '.exe' : ''));
+    const exe = join(
+      d,
+      (id === 'antigravity' ? 'agy' : id) + (process.platform === 'win32' ? '.exe' : ''),
+    );
     if (await existe(exe)) return { cmd: exe, prefixo: [] };
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' && id !== 'antigravity') {
       const pacote =
         id === 'gemini'
           ? ['@google', 'gemini-cli', 'bundle', 'gemini.js']
@@ -160,6 +182,10 @@ export async function localizar(
       if (await existe(js)) return { cmd: process.execPath, prefixo: [js] };
     }
   }
+  if (id === 'antigravity') return undefined;
+  return localizarExtensao(id);
+}
+async function localizarExtensao(id: CliId): Promise<{ cmd: string; prefixo: string[] } | undefined> {
   const base = join(homedir(), '.vscode', 'extensions');
   try {
     const prefixo = id === 'claude' ? 'anthropic.claude-code-' : 'openai.chatgpt-';
@@ -192,6 +218,36 @@ function resumo(v: unknown): string {
     .slice(0, 400);
 }
 export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
+  if (id === 'antigravity') {
+    if (j.event === 'init')
+      ev.sistema?.(
+        `Antigravity ferramentas MCP: ${(j.init?.tools ?? []).filter((t: string) => /fagulha|navegador/.test(t)).join(', ') || 'descoberta dinamica'}`,
+      );
+    if (j.event === 'init' && j.conversation_id) ev.sessao(j.conversation_id);
+    if (j.event === 'step_update') {
+      const step = j.step_update ?? {};
+      if (step.text_delta && step.step_type === 'agent_response') {
+        ev.fase?.('respondendo');
+        ev.parcial(step.text_delta);
+      } else if (
+        step.step_type &&
+        !['user_input', 'checkpoint', 'agent_response'].includes(step.step_type)
+      ) {
+        const f = faseFerramenta(step.tool_name ?? step.step_type, {});
+        ev.fase?.(f.tipo, f.detalhe);
+        ev.acao(
+          `Antigravity: ${resumo({ tipo: step.step_type, ferramenta: step.tool_name, estado: step.state })}`,
+        );
+        if (step.tool_info?.error)
+          ev.sistema?.(`Antigravity ferramenta falhou: ${resumo(step.tool_info.error)}`);
+      }
+    }
+    if (j.event === 'result' && (j.result?.status === 'ERROR' || j.status === 'ERROR' || j.error))
+      ev.erro(
+        mascarar(String(j.error?.message ?? j.result?.error ?? j.error ?? 'Falha Antigravity')),
+      );
+    return;
+  }
   if (
     (id === 'claude' && j.type === 'assistant') ||
     (id === 'gemini' && j.type === 'message' && j.role === 'assistant')
@@ -263,13 +319,20 @@ export class ProvedorCli implements Provedor {
   ) {
     this.agente = agentePadrao(
       id,
-      id === 'gemini' ? 'Gemini' : id === 'claude' ? 'Claude' : 'Codex',
+      id === 'antigravity'
+        ? 'Antigravity'
+        : id === 'gemini'
+          ? 'Gemini'
+          : id === 'claude'
+            ? 'Claude'
+            : 'Codex',
       'cli',
       id === 'claude' ? 'amarelo' : id === 'codex' ? 'verde' : 'magenta',
-      id === 'gemini' ? ['gemini', 'ag', 'antigravity'] : [],
+      id === 'antigravity' ? ['ag', 'agy'] : [],
     );
     this.agente.suportaImagem = false; // CLIs recebem descricao; imagem binaria so APIs nesta F1.
     this.agente.opcoesLogin = opcoesLogin(id);
+    if (id === 'gemini') this.agente.autenticacaoModo = 'api';
     if (segredos)
       this.autenticacao = {
         segredos,
@@ -282,7 +345,7 @@ export class ProvedorCli implements Provedor {
           delete env.ANTHROPIC_API_KEY;
           delete env.OPENAI_API_KEY;
           delete env.CODEX_API_KEY;
-          return rodarLogin(this.bin.cmd, [...this.bin.prefixo, ...args], {
+          return rodarLogin(this.bin.cmd, [...this.bin.prefixo, ...argsConta(this.id), ...args], {
             cwd: resolve('.'),
             env,
             sinal,
@@ -312,6 +375,7 @@ export class ProvedorCli implements Provedor {
   }
   async estadoLogin(sinal?: AbortSignal): Promise<EstadoLogin> {
     if (!this.bin) return 'desconectado';
+    if (this.id === 'antigravity') return 'desconhecido'; // Conta compartilhada com extensao; execucao confirma autenticacao.
     // Status oficial; nao abre/inspeciona arquivos de credenciais.
     if (this.id === 'gemini') {
       const chave = await this.segredos?.get('fagulha.api.gemini');
@@ -331,6 +395,7 @@ export class ProvedorCli implements Provedor {
         this.bin.cmd,
         [
           ...this.bin.prefixo,
+          ...argsConta(this.id),
           ...(this.id === 'claude' ? ['auth', 'status', '--json'] : ['login', 'status']),
         ],
         {
@@ -345,7 +410,7 @@ export class ProvedorCli implements Provedor {
       );
       if (this.id === 'claude') {
         const status = JSON.parse(capturado);
-        if (status.loggedIn !== true) {
+        if (status.loggedIn !== true || !['claude.ai', 'claudeai'].includes(status.authMethod)) {
           this.agente.conta = undefined;
           return 'desconectado';
         }
@@ -359,15 +424,8 @@ export class ProvedorCli implements Provedor {
           /not logged in|not authenticated/i.test(capturado)
         )
           return 'desconectado';
-        const chave = /api key/i.test(capturado)
-          ? await this.segredos?.get('fagulha.api.codex')
-          : undefined;
-        if (chave) protegerSegredo(chave);
-        this.agente.conta = /api key/i.test(capturado)
-          ? chave
-            ? `chave ...${chave.slice(-4)}`
-            : 'Chave de API'
-          : 'ChatGPT';
+        if (/api key/i.test(capturado)) return 'desconectado';
+        this.agente.conta = 'ChatGPT';
       }
       return 'conectado';
     } catch (e) {
@@ -381,10 +439,7 @@ export class ProvedorCli implements Provedor {
     throw new Error('Escolha uma opção de login no painel do agente.');
   }
   private async ambiente(): Promise<NodeJS.ProcessEnv> {
-    const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
-    delete env.NODE_OPTIONS;
-    delete env.CLAUDECODE;
-    return env;
+    return ambienteConta();
   }
   private async cwd(): Promise<string> {
     const cwd = join(this.isolamento ?? resolve('.'), 'trabalho');
@@ -417,6 +472,14 @@ export class ProvedorCli implements Provedor {
   }
   async executar(p: PedidoExecucao, ev: EventosProvedor, sinal: AbortSignal): Promise<void> {
     if (!this.bin) throw new Error('CLI nao encontrado.');
+    if (['claude', 'codex'].includes(this.id)) {
+      this.agente.login = await this.estadoLogin(sinal);
+      if (this.agente.login !== 'conectado')
+        throw new Error(`${this.agente.nick}: login de conta nao confirmado. Entre pela conta no painel; para chave use o participante de API separado. Nenhuma requisicao ao modelo foi enviada.`);
+      ev.acao(`${this.agente.nick}: autenticacao por conta confirmada (${this.agente.conta ?? 'conta nativa'}); chaves de API herdadas isoladas.`);
+    }
+    // Recusar antes de escrever configuracao quando nao podemos garantir o nivel.
+    if (this.id === 'antigravity') montarArgumentos(this.id, p.modo, p.nivel);
     await mkdir(p.ponte.diretorio, { recursive: true });
     const config = join(p.ponte.diretorio, 'mcp.json');
     const settings = join(p.ponte.diretorio, 'gemini-settings.json');
@@ -441,6 +504,46 @@ export class ProvedorCli implements Provedor {
       delete env.NODE_OPTIONS;
       if (this.id === 'claude') env.MCP_TOOL_TIMEOUT = '1860000';
       delete env.CLAUDECODE;
+      if (this.id === 'antigravity') {
+        // Registro oficial do servidor, sem URL/token persistidos. A capacidade e herdada
+        // do processo desta execucao e revogada pela sala ao encerrar.
+        await rodar(
+          this.bin.cmd,
+          [
+            ...this.bin.prefixo,
+            'mcp',
+            'add',
+            '--env',
+            'ELECTRON_RUN_AS_NODE=1',
+            'fagulha_orquestrador',
+            process.execPath,
+            p.ponte.servidor,
+          ],
+          { cwd: p.ponte.diretorio, env, sinal, timeoutMs: 15000 },
+        );
+        const pasta = join(p.ponte.diretorio, '.agents');
+        await mkdir(pasta, { recursive: true });
+        await writeFile(
+          join(pasta, 'mcp_config.json'),
+          JSON.stringify({
+            mcpServers: {
+              fagulha_orquestrador: {
+                command: process.execPath,
+                args: [p.ponte.servidor],
+                env: {
+                  ELECTRON_RUN_AS_NODE: '1',
+                  ORQUESTRA_BRIDGE_URL: p.ponte.url,
+                  ORQUESTRA_BRIDGE_TOKEN: p.ponte.token,
+                },
+              },
+            },
+          }),
+          { mode: 0o600 },
+        );
+        ev.acao(
+          'Antigravity Total: ferramentas nativas e MCPs herdados podem agir fora do Portao. Use as ferramentas da sala para auditoria e confirmacao de operacoes externas.',
+        );
+      }
       if (this.id === 'gemini') {
         const chave = await this.segredos?.get('fagulha.api.gemini');
         if (!chave) throw new Error('Configure a chave do Google AI Studio no painel do agente.');
@@ -510,7 +613,13 @@ export class ProvedorCli implements Provedor {
         env.GEMINI_CLI_TRUST_WORKSPACE = p.nivel === 'manual' ? 'false' : 'true';
       }
       const cwd =
-        p.nivel === 'manual' ? (this.isolamento ? await this.cwd() : p.ponte.diretorio) : p.projeto;
+        this.id === 'antigravity'
+          ? p.ponte.diretorio
+          : p.nivel === 'manual'
+            ? this.isolamento
+              ? await this.cwd()
+              : p.ponte.diretorio
+            : p.projeto;
       await mkdir(cwd, { recursive: true });
       await this.avisarEnv(cwd, p.sessao ?? 'nova', ev);
       let avisos = this.avisosCodex.get(p.sessao ?? '') ?? new Set<string>();
@@ -575,6 +684,8 @@ export class ProvedorCli implements Provedor {
         process.execPath,
         herdados,
       );
+      if (this.id === 'antigravity')
+        args.push('--add-dir', p.projeto, '--add-dir', p.ponte.diretorio);
       if (this.id === 'codex' && p.nivel !== 'manual')
         for (const caminho of p.caminhosImagens ?? [])
           args.splice(args.length - 1, 0, '-i', caminho);
@@ -582,9 +693,11 @@ export class ProvedorCli implements Provedor {
         cwd,
         env,
         stdin:
-          this.id === 'gemini' && p.nivel !== 'manual' && p.caminhosImagens?.length
-            ? `${p.prompt}\nImagens da mensagem: ${p.caminhosImagens.map((c) => `@${JSON.stringify(c)}`).join(' ')}`
-            : p.prompt,
+          this.id === 'antigravity'
+            ? JSON.stringify({ event: 'user', message: { content: p.prompt } }) + '\n'
+            : this.id === 'gemini' && p.nivel !== 'manual' && p.caminhosImagens?.length
+              ? `${p.prompt}\nImagens da mensagem: ${p.caminhosImagens.map((c) => `@${JSON.stringify(c)}`).join(' ')}`
+              : p.prompt,
         sinal,
         timeoutMs: 0, // Sala aplica tempo ativo; perguntar_usuario pode esperar 30 minutos.
         filtrarLinha: this.id === 'codex' ? filtroAvisoCodex(avisarConfig) : undefined,
@@ -614,11 +727,25 @@ export class ProvedorCli implements Provedor {
                 ev.sessao(id);
               },
             });
+            if (
+              this.id === 'antigravity' &&
+              j.event === 'result' &&
+              j.result?.status === 'SUCCESS'
+            ) {
+              this.agente.login = 'conectado';
+              this.agente.conta = 'Conta Antigravity';
+            }
           }
         },
       });
     } finally {
-      for (const arquivo of [config, settings])
+      for (const arquivo of [
+        config,
+        settings,
+        ...(this.id === 'antigravity'
+          ? [join(p.ponte.diretorio, '.agents', 'mcp_config.json')]
+          : []),
+      ])
         await unlink(arquivo).catch((e) => {
           if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
         });

@@ -13,7 +13,7 @@ import { faseFerramenta } from '../core/fases';
 import { conteudoResultado } from '../mcp/conteudo';
 import { ErroFerramenta } from '../mcp/erros';
 import { AcaoRecusada } from '../permissions/portao';
-export type ApiId = 'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api';
+export type ApiId = 'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api' | 'mistral-api';
 export interface OpcoesApi {
   baseUrl?: string;
   modelo?: string;
@@ -30,7 +30,7 @@ export class ProvedorApi implements Provedor {
   ) {
     this.agente = agentePadrao(
       id,
-      id === 'gemini-api'
+      id === 'mistral-api' ? 'MistralAPI' : id === 'gemini-api'
         ? 'GeminiAPI'
         : id === 'openai-compativel'
           ? 'OpenAICompativel'
@@ -43,6 +43,7 @@ export class ProvedorApi implements Provedor {
       'azul',
     );
     this.agente.opcoesLogin = opcoesLogin(id);
+    if (id === 'ollama') this.agente.autenticacaoModo = 'local';
     if (id !== 'ollama')
       this.autenticacao = {
         segredos,
@@ -69,7 +70,7 @@ export class ProvedorApi implements Provedor {
         ? 'http://127.0.0.1:11434'
         : this.id === 'anthropic'
           ? 'https://api.anthropic.com/v1'
-          : this.id === 'gemini-api'
+          : this.id === 'mistral-api' ? 'https://api.mistral.ai/v1' : this.id === 'gemini-api'
             ? 'https://generativelanguage.googleapis.com/v1beta'
             : 'https://api.openai.com/v1')
     );
@@ -129,7 +130,7 @@ export class ProvedorApi implements Provedor {
       {
         role: 'user',
         content:
-          p.imagens?.length && (this.id === 'openai-compativel' || this.id === 'openai-api')
+          p.imagens?.length && (this.id === 'openai-compativel' || this.id === 'openai-api' || this.id === 'mistral-api')
             ? [
                 { type: 'text', text: p.prompt },
                 ...p.imagens.map((img) => ({

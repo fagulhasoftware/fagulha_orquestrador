@@ -10,7 +10,7 @@ Alles, was du in Orquestrador Fagulha eingeben, anklicken oder einstellen kannst
 |---|---|---|
 | `@claude …` | Sendet die Nachricht an Claude Code | Planung, Architektur, Reviews, ausführliche Erklärungen |
 | `@codex …` | Sendet die Nachricht an Codex | Umsetzung, Refactoring, Tests ausführen und reparieren |
-| `@gemini …` (auch `@ag`, `@antigravity`) | Sendet die Nachricht an Gemini CLI | Zweitmeinung, Recherche, großer Kontext |
+| `@gemini …` | Sendet die Nachricht an Gemini CLI | Zweitmeinung, Recherche, großer Kontext |
 | `@ollama …` | Sendet die Nachricht an dein lokales Ollama-Modell | Offline-Arbeit, private Entwürfe, schnelle Fragen |
 | `@openai …`, `@anthropic …`, `@geminiapi …`, `@openaicompativel …` | Sendet die Nachricht an einen Agenten mit API-Schlüssel | Wenn du einen Anbieter per API-Schlüssel statt per CLI nutzt |
 | `@todos …` | Sendet die Nachricht an alle aktivierten Agenten | Alle nach ihrer Meinung fragen, Antworten vergleichen |

@@ -10,7 +10,7 @@ import { banco, temporario } from './apoio';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-for (const id of ['openai-api', 'anthropic', 'gemini-api', 'ollama'] as ApiId[])
+for (const id of ['openai-api', 'anthropic', 'gemini-api', 'ollama', 'mistral-api'] as ApiId[])
   test(`${id}: descoberta dinamica e resposta com imagem passam pelo mesmo portal`, async () => {
     let chamadas = 0;
     const pedidos: any[] = [];

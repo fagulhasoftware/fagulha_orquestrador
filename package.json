@@ -2,7 +2,7 @@
   "name": "orquestrador-fagulha",
   "displayName": "Orquestrador Fagulha",
   "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
-  "version": "0.4.0",
+  "version": "0.4.8",
   "publisher": "FagulhaSoftware",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -45,7 +45,8 @@
     "smoke:clis": "tsc -p tsconfig.test.json && node scripts/smoke-clis.cjs",
     "verify:codex-mcp": "tsc -p tsconfig.test.json && node scripts/verificar-codex-mcp.cjs",
     "verify:codex-total": "tsc -p tsconfig.test.json && node scripts/verificar-codex-total.cjs",
-    "format": "prettier --write src/extension.ts src/core src/providers src/permissions src/mcp src/storage src/attachments src/context-import src/browser src/voice test/*.ts test/package-smoke.cjs scripts/*.cjs esbuild.mjs tsconfig*.json package.json .prettierrc.json"
+    "format": "prettier --write src/extension.ts src/core src/providers src/permissions src/mcp src/storage src/attachments src/context-import src/browser src/voice test/*.ts test/package-smoke.cjs scripts/*.cjs esbuild.mjs tsconfig*.json package.json .prettierrc.json",
+    "verify:antigravity": "tsc -p tsconfig.test.json && node scripts/verificar-antigravity.cjs"
   },
   "contributes": {
     "commands": [
@@ -192,6 +193,36 @@
         "fagulha.provedores.gemini-api.baseUrl": {
           "type": "string",
           "description": "baseUrl do provedor gemini-api. Vazio usa a deteccao ou valor padrao."
+        },
+        "fagulha.provedores.antigravity.comando": {
+          "type": "string",
+          "default": "",
+          "description": "Executavel agy do Antigravity. Vazio detecta PATH e ~/.gemini/bin. Total/leitura_escrita; outros niveis recusados ate isolamento comprovado."
+        },
+        "fagulha.provedores.mistral-vibe.comando": {
+          "type": "string",
+          "default": "",
+          "description": "Executavel ACP oficial do Mistral. Vazio detecta o binario da extensao Mistral Vibe ou vibe-acp no PATH."
+        },
+        "fagulha.provedores.mistral-enterprise.comando": {
+          "type": "string",
+          "default": "",
+          "description": "Executavel ACP oficial do Mistral. Vazio detecta o binario da extensao Mistral Vibe ou vibe-acp no PATH."
+        },
+        "fagulha.provedores.mistral-enterprise.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL HTTPS do dominio de login corporativo Mistral. Vazio usa a nuvem Mistral. Nao informe URL de API, senha ou chave."
+        },
+        "fagulha.provedores.mistral-api.modelo": {
+          "type": "string",
+          "default": "",
+          "description": "Modelo da API Mistral. Configure conforme os modelos disponiveis na conta de API."
+        },
+        "fagulha.provedores.mistral-api.baseUrl": {
+          "type": "string",
+          "default": "https://api.mistral.ai/v1",
+          "description": "Endpoint da API Mistral, separado dos perfis de conta Vibe e Enterprise."
         }
       }
     },
@@ -214,6 +245,7 @@
     "pdfjs-dist": "^4.10.38",
     "sql.js": "^1.13.0",
     "unzipper": "^0.12.5",
+    "ws": "^8.22.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -222,6 +254,7 @@
     "@types/sql.js": "^1.4.9",
     "@types/unzipper": "^0.10.11",
     "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.18.2",
     "@vscode/vsce": "^4.0.0",
     "esbuild-wasm": "^0.25.0",
     "jszip": "^3.10.2",

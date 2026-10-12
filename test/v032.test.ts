@@ -301,7 +301,7 @@ for (const id of ['codex', 'claude', 'gemini'] as CliId[])
         bin = join(tmp.pasta, 'cli.cjs');
       await writeFile(
         bin,
-        `const fs=require('fs'),a=process.argv.slice(2); if(a.includes('--version')){console.log('fixture');process.exit(0);}if(a[0]==='mcp'){console.log('[]');process.exit(0);}let s='';process.stdin.on('data',b=>s+=b);process.stdin.on('end',()=>{fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({args:a,stdin:s}));console.log(JSON.stringify({type:'init',session_id:'teste'}));});`,
+        `const fs=require('fs'),a=process.argv.slice(2); if(a.includes('--version')){console.log('fixture');process.exit(0);}if(a.includes('status')){console.log(a.includes('auth')?JSON.stringify({loggedIn:true,authMethod:'claude.ai'}):'Logged in using ChatGPT');process.exit(0);}if(a[0]==='mcp'){console.log('[]');process.exit(0);}let s='';process.stdin.on('data',b=>s+=b);process.stdin.on('end',()=>{fs.writeFileSync(${JSON.stringify(registro)},JSON.stringify({args:a,stdin:s}));console.log(JSON.stringify({type:'init',session_id:'teste'}));});`,
       );
       const p = new ProvedorCli(id, async () => {}, bin, join(tmp.pasta, 'scratch'), {
         get: async () => 'chave-ficticia',

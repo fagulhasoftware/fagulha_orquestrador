@@ -5,10 +5,12 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { RegistroIntegracao, ConexaoMcp } from './tipos';
 import { ErroFerramenta } from '../mcp/erros';
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 export async function conectarMcp(
   r: RegistroIntegracao,
   token?: string,
   timeoutMs = 15000,
+  authProvider?: OAuthClientProvider,
 ): Promise<ConexaoMcp> {
   const cliente = new Client(
     { name: 'fagulha_integracoes', version: '0.4.0' },
@@ -18,10 +20,14 @@ export async function conectarMcp(
     const destino = new URL(
       typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     );
-    if (r.url && destino.origin !== new URL(r.url).origin)
+    if (destino.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(destino.hostname))
+      throw new ErroFerramenta('MCP e OAuth exigem HTTPS fora do computador local.');
+    // O SDK consulta o emissor OAuth em outro dominio durante descoberta/renovacao.
+    // Tokens manuais permanecem restritos ao dominio do MCP.
+    if (r.url && destino.origin !== new URL(r.url).origin && !authProvider)
       throw new ErroFerramenta('Servidor MCP tentou acessar outro dominio.');
     const headers = new Headers(init?.headers);
-    if (token) headers.set('Authorization', `Bearer ${token}`);
+    if (token && destino.origin === new URL(r.url!).origin) headers.set('Authorization', `Bearer ${token}`);
     const controle = new AbortController();
     const timer = setTimeout(() => controle.abort(), timeoutMs);
     try {
@@ -47,11 +53,13 @@ export async function conectarMcp(
     transporte =
       r.transporte === 'sse'
         ? new SSEClientTransport(new URL(r.url!), {
+            authProvider,
             requestInit,
             fetch: fetchSeguro,
             eventSourceInit: { fetch: fetchSeguro },
           })
         : new StreamableHTTPClientTransport(new URL(r.url!), {
+            authProvider,
             requestInit,
             fetch: fetchSeguro,
             reconnectionOptions: {
@@ -69,7 +77,7 @@ export async function conectarMcp(
     const code = (e as { code?: number }).code;
     throw new ErroFerramenta(
       code === 401 || code === 403 || (e as Error).name === 'UnauthorizedError'
-        ? 'Autenticacao recusada pelo servidor MCP.'
+        ? 'Autenticacao recusada pelo servidor MCP. Confira o tipo de token, permissoes da conta e autorizacao da organizacao.'
         : 'Nao foi possivel conectar ao servidor MCP (endpoint, transporte ou tempo limite).',
     );
   }

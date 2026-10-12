@@ -203,7 +203,17 @@ configuracoes (`fagulha.anexos.*`) com estes valores como padrao e maximos rigid
 Importar como "contexto" (chip removivel no chat): conversas do Claude Code
 (`~/.claude/projects/**.jsonl`), do Codex (`~/.codex/sessions/**.jsonl`), da sala de terminal
 (`~/.orquestra/sala/logs/**`) e de outras salas da extensao. Escolha por QuickPick com busca; o
-conteudo e resumido para um orcamento de tamanho (padrao 12 000 caracteres, ultimas mensagens).
+conteudo e extraido e truncado pelo final para um orcamento de tamanho (padrao e teto de
+12 000 caracteres). Nao ha resumo semantico nem extracao automatica de decisoes. Uma decisao
+humana antiga e seu motivo podem ficar fora do trecho importado; o corte tambem pode comecar
+no meio de uma mensagem. Para arquivos grandes, somente os ultimos 8 MB sao lidos.
+
+Decisoes duraveis devem ser registradas explicitamente como memoria do projeto (opcao rejeitada,
+motivo e alternativa escolhida) ou em um ADR versionado, solicitado/anexado ao agente no handoff.
+A memoria e separada da importacao: itens ativos do escopo entram no contexto sob teto de 4 000
+caracteres, mais recentes primeiro. Um item continua salvo no banco mesmo quando nao cabe nesse
+teto; isso nao garante sua presenca em todo prompt. O corpo final tambem tem limite de 160 000
+caracteres. Veja o [exemplo de handoff e os limites atuais](CONTEXT_HANDOFF.md).
 
 ## 10. Navegador, voz e sistemas externos
 
@@ -281,6 +291,6 @@ privacidade e teste manual no VS Code (F5).
 - **F1b**: voz local.
 - **F2**: navegador via CDP, sistemas externos (repositorios, VMs, sites), marketplace de manifestos.
 
-### Codex Total em 0.3.0
+### Historico: Codex Total em 0.3.0
 
 A linha Codex da tabela anterior descreve Manual/Parcial. No Total, usa `danger-full-access` para escrita, `read-only` em modo leitura, `web_search="live"`, shell nativo desligado e MCPs herdados preservados. `comando_executar` classifica operacoes conhecidas em `irreversivel_externo`; scripts e destinos remotos implicitos nao sao interpretados. Edicoes nativas e MCPs herdados ficam fora do Portao. Memorias propostas sao automaticas no Total. Os outros provedores mantem os argumentos de CLI anteriores; a matriz do Portao e compartilhada.

@@ -5,7 +5,7 @@ const id = z.string().min(1).max(200);
 const vazio = (tipo: string) => z.object({ tipo: z.literal(tipo) }).strict();
 const modo = z.enum(['leitura', 'escrita', 'leitura_escrita']);
 const schemas = [
-  ...['listarIntegracoes', 'listarSkills'].map(vazio),
+  ...['listarIntegracoes', 'listarSkills', 'listarRecursosNativos'].map(vazio),
   ...['desconectarIntegracao', 'removerIntegracao'].map((tipo) =>
     z.object({ tipo: z.literal(tipo), id }).strict(),
   ),

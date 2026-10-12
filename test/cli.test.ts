@@ -15,20 +15,22 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[])
             args[args.indexOf('--permission-mode') + 1],
             leitura ? 'plan' : 'acceptEdits',
           );
-          assert(args.includes('--strict-mcp-config'));
+          assert.equal(args.includes('--strict-mcp-config'), nivel !== 'total');
           assert.equal(args.includes('--tools'), nivel === 'manual');
           if (nivel === 'manual') assert.equal(args[args.indexOf('--tools') + 1], '');
           assert(!args.includes('--bare'));
           assert.equal(args.includes('--disallowedTools'), modo === 'escrita');
           assert(args.includes('mcp__fagulha_orquestrador__aprovar'));
-          assert.equal(args[args.indexOf('--setting-sources') + 1], '');
+          assert.equal(args.includes('--setting-sources'), nivel !== 'total');
+          if (nivel !== 'total') assert.equal(args[args.indexOf('--setting-sources') + 1], '');
         }
         if (id === 'codex') {
           assert.equal(
             args[args.indexOf('--sandbox') + 1],
             leitura ? 'read-only' : nivel === 'total' ? 'danger-full-access' : 'workspace-write',
           );
-          assert.equal(args.includes('features.shell_tool=false'), nivel !== 'parcial');
+          assert.equal(args.includes('features.shell_tool=false'), nivel === 'manual');
+          assert(args.includes(`features.apps=${nivel === 'total'}`));
           assert(!args.some((a) => a.includes('cli_auth_credentials_store')));
           assert(args.includes(`sandbox_workspace_write.network_access=${nivel === 'total'}`));
           assert(args.includes(`web_search="${nivel === 'total' ? 'live' : 'disabled'}"`));

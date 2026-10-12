@@ -459,3 +459,9 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 .tag.cat-publicacao { color: var(--alerta); }
 .tag.cat-irreversivel_externo { color: var(--erro); }
 .skill-conteudo { max-height: 320px; white-space: pre-wrap; }
+.app-icone { width: 22px; height: 22px; object-fit: contain; flex: 0 0 22px; border-radius: 4px; }
+.app-icone.fallback { display: inline-flex; align-items: center; justify-content: center; background: var(--campo); }
+.app-nativo { display: flex; gap: 12px; align-items: center; padding: 10px; border-bottom: 1px solid var(--borda); }
+.app-nativo p { margin: 3px 0 0; }
+.sugestoes li { display: flex; align-items: center; gap: 9px; min-height: 30px; }
+.sugestoes li span { overflow: hidden; text-overflow: ellipsis; }

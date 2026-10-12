@@ -1,5 +1,14 @@
 # Orquestrador Fagulha
 
+## Especialistas e recursos nativos (0.4.2)
+
+Use `@` para participantes, `#` para skills/Apps/MCPs especialistas e `/` para comandos da sala.
+Exemplos: `@codex #canva prepare uma proposta visual`; `@claude #code-review revise o diff`.
+Em Total, recursos nativos e conexoes existentes dos agentes permanecem disponiveis. Apps nativos do Codex aparecem separados dos MCPs compartilhados; uma conta conectada ao Codex nao e transferida automaticamente para outro provedor.
+Skills podem ser descobertas/importadas e lidas pelo MCP `skill_ler`. OAuth remoto usa navegador, PKCE e cofre do VS Code; alguns fornecedores exigem cliente OAuth proprio.
+`/pausar` interrompe o turno e `/continuar` retoma pelo contexto/sessao disponivel. `/skills`, `/integracoes`, `/agentes` e `/ajuda` abrem funcoes da sala.
+Detalhes e limites: [docs/RECURSOS_ESPECIALISTAS.md](docs/RECURSOS_ESPECIALISTAS.md).
+
 [English](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.md) · **Português (Brasil)** · [Español](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.es.md) · [Deutsch](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.de.md)
 
 Uma sala de chat privada dentro do VS Code onde os seus agentes de IA — Claude Code, Codex, Gemini CLI,
@@ -41,9 +50,10 @@ Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da F
 
 - VS Code 1.95 ou superior.
 - Pelo menos um agente:
-  - [Claude Code](https://code.claude.com) (CLI ou extensão do VS Code), com uma conta Claude ou do Anthropic Console;
-  - [Codex](https://developers.openai.com/codex) (CLI ou extensão do VS Code), com uma conta ChatGPT ou chave da OpenAI;
+  - [Claude Code](https://code.claude.com) (CLI ou extensão do VS Code), com uma conta Claude (chaves de API pertencem ao participante Anthropic separado);
+  - [Codex](https://developers.openai.com/codex) (CLI ou extensão do VS Code), com uma conta ChatGPT (chaves de API pertencem ao participante OpenAI separado);
   - [Gemini CLI](https://geminicli.com), com uma chave do Google AI Studio;
+  - Mistral Vibe / Mistral Code Enterprise via ACP, com perfis nativos separados por login no navegador; Mistral API usa um participante de chave separado;
   - [Ollama](https://ollama.com), rodando localmente;
   - ou uma chave de API de um provedor compatível.
 
@@ -134,10 +144,17 @@ Contribuição reconhecida: Fagulha Software 50%, Codex 30%, Claude 20%. Detalhe
 [MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini e Ollama são marcas de seus respectivos
 titulares; o Orquestrador Fagulha é compatível com essas ferramentas, sem vínculo ou endosso oficial.
 
-## Codex no nível Total (0.3.0)
+## Histórico: Codex no nível Total (0.3.0)
 
 O Codex usa acesso completo a arquivos em modo leitura e escrita, busca web ao vivo e preserva os MCPs configurados pelo usuário. O modo somente leitura mantém o sandbox read-only. Shell nativo fica desligado: comandos usam `comando_executar`, com timeout, limite de saída e auditoria. Manual e Parcial mantêm o comportamento anterior.
 
 Na CLI 0.160.0, a verificação local confirmou busca web e ausência de shell nativo; `apply_patch` também não foi oferecido nesse cenário. Use `arquivo_escrever` para editar. A disponibilidade de ferramentas nativas pode variar conforme a CLI e o modelo.
 
 O Portão pede confirmação individual para comandos externos conhecidos de exclusão, destruição, push forçado e SQL destrutivo com host remoto explícito. O classificador é uma heurística: scripts, aliases, conexões remotas implícitas e ferramentas de MCPs herdados podem executar ações fora dessa classificação. Chamadas diretas aos MCPs e edições nativas não passam pelo Portão; a orientação no contexto não é uma barreira técnica. Ferramentas da sala continuam recusando destinos sensíveis conhecidos. Parar continua disponível. Esta entrega trata do acesso do Codex; voz neural e demais recursos planejados para 0.3.0 não estão incluídos.
+
+## Antigravity e navegador dedicado
+
+A partir de 0.4.1, use @antigravity, @ag ou @agy para o participante Antigravity CLI.
+Disponivel em Total + leitura e escrita; niveis/modos restritos sao recusados ate validar isolamento.
+O navegador dedicado permite navegar, preencher, clicar mediante confirmacao e capturar PNG.
+Configuracao, limites e validacao: [docs/ANTIGRAVITY.md](docs/ANTIGRAVITY.md).

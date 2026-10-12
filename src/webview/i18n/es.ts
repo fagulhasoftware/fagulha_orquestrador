@@ -359,7 +359,7 @@ export const CATALOGO_ES: Record<string, string> = {
   "Sign in and connect": "Iniciar sesión y conectar",
   "Sign in with the browser (OAuth)": "Iniciar sesión en el navegador (OAuth)",
   "Skills": "Skills",
-  "Skills are reusable instructions (a folder with SKILL.md) that every agent can use. Agents see the name and description of active skills and read the full content when needed; you can force one with /skill <name>.": "Las skills son instrucciones reutilizables (una carpeta con SKILL.md) que cualquier agente puede usar. Los agentes ven el nombre y la descripción de las skills activas y leen el contenido completo cuando lo necesitan; puedes forzar una con /skill <nombre>.",
+  "Skills are reusable instructions (a folder with SKILL.md) that every agent can use. Agents see the name and description of active skills and read the full content when needed; you can force one with #<name>.": "Las skills son instrucciones reutilizables (una carpeta con SKILL.md) que cualquier agente puede usar. Los agentes ven el nombre y la descripción de las skills activas y leen el contenido completo cuando lo necesitan; puedes forzar una con #<nombre>.",
   "Skills are third-party instructions: review the content before enabling. Skills never run code by themselves.": "Las skills son instrucciones de terceros: revisa el contenido antes de activarlas. Las skills nunca ejecutan código por sí solas.",
   "The vendor marks this server as preview": "El fabricante marca este servidor como versión preliminar",
   "Transport": "Transporte",

@@ -34,6 +34,24 @@ const tools: Tool[] = ['get_item', 'update_item', 'send_message', 'delete_item']
     additionalProperties: false,
   },
 }));
+test('catalogo oferece OAuth Supabase e exige cliente proprio para GitHub', async () => {
+  const f = fixture();
+  assert.equal(f.gestor.listar().find((i) => i.id === 'supabase')?.autenticacao, 'oauth');
+  const canva = f.gestor.listar().find((i) => i.id === 'canva')!;
+  assert.equal(canva.autenticacao, 'oauth');
+  assert.equal(canva.endpoint, 'https://mcp.canva.com/mcp');
+  assert(!canva.campos.some((c) => ['token', 'clientId', 'clientSecret'].includes(c.chave)));
+  assert.deepEqual(catalogo.find((i) => i.id === 'github')?.autenticacao, ['token', 'oauth_cliente_proprio']);
+  await assert.rejects(f.gestor.conectar('github', { autenticacao: 'oauth_cliente_proprio' }), /Client ID/);
+  await assert.rejects(f.gestor.conectar('m365-mail'), /tenant/);
+  await f.gestor.finalizar();
+});
+test('erro de conexao conserva diagnostico mascarado no painel', async () => {
+  const f = fixture(async () => { throw new Error('OAuth registration unsupported'); });
+  await assert.rejects(f.gestor.conectar('figma'), /registration unsupported/);
+  assert.match(f.gestor.listar().find((i) => i.id === 'figma')!.mensagem!, /registration unsupported/);
+  await f.gestor.finalizar();
+});
 function fixture(fabrica?: (r: RegistroIntegracao, token?: string) => Promise<ConexaoMcp>) {
   let registros: RegistroIntegracao[] = [];
   const valores = new Map<string, string>(),
@@ -163,6 +181,7 @@ test('catalogo completo e categorias conservam anotacoes e prioridade destrutiva
       'google-calendar',
       'm365-mail',
       'm365-calendar',
+      'canva',
       'personalizada',
     ],
   );
@@ -400,7 +419,7 @@ test('cancelamento, desativacao durante aprovacao, somente leitura e OAuth adiad
       f.gestor.executar('codex', 'leitura_escrita', `${id}__get_item`, { id: '1' }, sinal),
     );
     assert.equal(servidor.chamadas.length, 0);
-    await assert.rejects(f.gestor.conectar('figma'), /fase 0.4.0-b/);
+    assert.equal(f.gestor.listar().find((i) => i.id === 'figma')?.autenticacao, 'oauth');
     assert.throws(() => urlIntegracao('https://example.com/mcp?token=segredo'), /credenciais/);
     const r = f.registros()[0];
     r.somenteLeitura = true;
@@ -586,13 +605,13 @@ test('contrato v6: catalogo completo, estados conectando/conectada, valores e co
     assert.throws(() =>
       validarMensagem({ tipo: 'conectarIntegracao', id, valores: { token: 'x' }, token: 'nao' }),
     );
-    await assert.rejects(
-      mensagemIntegracao(
+    assert.equal(
+      await mensagemIntegracao(
         f.gestor,
         validarMensagem({ tipo: 'verSkill', nome: 'exemplo' }),
         () => {},
       ),
-      /0.4.0-c/,
+      false,
     );
     assert(
       catalogo
@@ -600,7 +619,7 @@ test('contrato v6: catalogo completo, estados conectando/conectada, valores e co
         .every(
           (c) =>
             f.gestor.listar().find((r) => r.id === c.id)?.mensagem ===
-            'OAuth is planned for phase 0.4.0-b.',
+            'Conecte pelo navegador. Disponibilidade depende da conta e do servidor.',
         ),
     );
   } finally {

@@ -164,6 +164,7 @@ async function fixture(opcoes: Record<string, unknown> = {}) {
       canal.write('Codex is ignoring 2 unrecognized config');
       canal.write('uration settings:\\n  - features.rmcp_client\\n  - mcp\\n');
     };
+    if(args.includes('status')){console.log(args.includes('auth')?JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'fixture@example.test'}):'Logged in using ChatGPT');process.exit(0);}
     if (args[0] === 'mcp') {
       log.listas.push(args); fs.writeFileSync(arquivo, JSON.stringify(log)); avisar();
       if (op.fallback && args.includes('--json')) { console.error('unexpected argument --json'); process.exit(2); }

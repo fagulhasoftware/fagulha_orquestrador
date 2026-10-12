@@ -4,6 +4,7 @@ import { Sala } from '../core/sala';
 import { caminhoReal, dentro, mascarar, sensivel } from '../core/seguranca';
 import { validarArgumentos } from './ferramentas';
 import { lerPagina, validarUrl } from '../browser/pagina';
+import { NavegadorControlado } from '../browser/controle';
 import { rodar } from '../providers/processo';
 import type { CategoriaAcao } from '../shared/protocolo';
 import { validarMemoria } from '../core/memoria';
@@ -42,12 +43,19 @@ const FERRAMENTAS_INTERNAS = new Set([
 ]);
 
 export class ExecutorFerramentas {
+  private navegadores = new Map<string, NavegadorControlado>();
+  private sinaisNavegador = new WeakMap<NavegadorControlado, WeakSet<AbortSignal>>();
+  async fecharNavegadores() {
+    await Promise.all([...this.navegadores.values()].map((n) => n.fechar()));
+    this.navegadores.clear();
+  }
   constructor(
     private sala: Sala,
     private raizes: string[],
     private abrir: (url: string) => Promise<void>,
     private pastaSessoes?: string,
     private integracoes?: Integracoes,
+    private skills?: { ler(nome: string): Promise<string> },
   ) {}
   async executar(
     id: string,
@@ -226,6 +234,12 @@ export class ExecutorFerramentas {
         },
         sinal,
       );
+    if (nome === 'skill_ler') {
+      if (!this.skills) throw new ErroFerramenta('Catalogo de skills indisponivel.');
+      return portao('leitura_maquina', 'Ler skill especialista', String(args.nome), () =>
+        this.skills!.ler(String(args.nome)),
+      );
+    }
     if (nome === 'memoria_propor') {
       const texto = validarMemoria(String(args.texto));
       const escopo = args.escopo as 'global' | 'projeto';
@@ -391,6 +405,56 @@ export class ExecutorFerramentas {
           );
         },
         comandoCritico(comando),
+      );
+    }
+    if (
+      [
+        'navegador_controlar',
+        'navegador_estado',
+        'navegador_clicar',
+        'navegador_preencher',
+        'navegador_capturar',
+        'navegador_fechar',
+      ].includes(nome)
+    ) {
+      const chave = `${chatId}:${id}`;
+      const navegador = this.navegadores.get(chave) ?? new NavegadorControlado();
+      this.navegadores.set(chave, navegador);
+      const encerrar = () => {
+        this.navegadores.delete(chave);
+        void navegador.fechar().catch(() => {});
+      };
+      const categoria =
+        nome === 'navegador_clicar'
+          ? 'irreversivel_externo'
+          : nome === 'navegador_estado' || nome === 'navegador_capturar'
+            ? 'rede_leitura'
+            : 'navegador';
+      if (nome === 'navegador_preencher' && String(args.texto) !== mascarar(String(args.texto)))
+        throw new ErroFerramenta('Nao preencher segredos pelo navegador da sala.');
+      return portao(
+        categoria,
+        nome,
+        String(args.url ?? args.seletor ?? 'Pagina dedicada'),
+        async () => {
+          await confirmarChat();
+          const sinais = this.sinaisNavegador.get(navegador) ?? new WeakSet<AbortSignal>();
+          if (!sinais.has(sinal)) {
+            sinais.add(sinal);
+            this.sinaisNavegador.set(navegador, sinais);
+            sinal.addEventListener('abort', encerrar, { once: true });
+          }
+          if (nome === 'navegador_controlar')
+            return navegador.navegar(validarUrl(String(args.url)).href);
+          if (nome === 'navegador_estado') return navegador.estado();
+          if (nome === 'navegador_clicar') return navegador.clicar(String(args.seletor));
+          if (nome === 'navegador_preencher')
+            return navegador.preencher(String(args.seletor), String(args.texto));
+          if (nome === 'navegador_capturar') return navegador.captura();
+          await navegador.fechar();
+          this.navegadores.delete(chave);
+          return { fechado: true };
+        },
       );
     }
     if (nome === 'navegador_ler' || nome === 'navegador_abrir') {

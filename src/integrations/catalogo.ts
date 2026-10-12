@@ -1,5 +1,5 @@
 import type { ItemCatalogo } from './tipos';
-// Catalogo da especificacao; referencias oficiais consultadas em 2026-10-08. OAuth: fase B.
+// MCPs compartilhados. Recursos nativos de cada agente nao dependem deste catalogo.
 export const catalogo: ItemCatalogo[] = [
   {
     id: 'figma',
@@ -8,8 +8,10 @@ export const catalogo: ItemCatalogo[] = [
     url: 'https://mcp.figma.com/mcp',
     autenticacao: ['oauth'],
     escopos: [],
-    requisitos: ['OAuth is planned for phase 0.4.0-b.'],
-    documentacao: 'https://developers.figma.com/docs/figma-mcp-server/',
+    requisitos: [
+      'O MCP remoto do Figma aceita apenas clientes aprovados no catalogo do fornecedor. O registro OAuth do Fagulha pode ser recusado com HTTP 403 antes do login. Recursos Figma ja conectados ao agente podem ser usados nativamente; acesso compartilhado exige aprovacao do cliente Fagulha.',
+    ],
+    documentacao: 'https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/',
     fase: 'b',
   },
   {
@@ -17,10 +19,10 @@ export const catalogo: ItemCatalogo[] = [
     nome: 'GitHub',
     descricao: 'Repositories, issues and pull requests.',
     url: 'https://api.githubcopilot.com/mcp/',
-    autenticacao: ['token', 'oauth'],
+    autenticacao: ['token', 'oauth_cliente_proprio'],
     escopos: ['repo', 'read:org'],
     requisitos: [
-      'Personal access token with minimum permissions for the selected repositories. Repository writes count as publishing.',
+      'Use um personal access token do GitHub. Login OAuth exige seu proprio GitHub OAuth App, Client ID/secret e callback http://127.0.0.1:43219/oauth/callback; o servidor nao oferece registro dinamico.',
     ],
     documentacao: 'https://github.com/github/github-mcp-server',
     fase: 'a',
@@ -30,9 +32,9 @@ export const catalogo: ItemCatalogo[] = [
     nome: 'Supabase',
     descricao: 'Projects, database and development tools.',
     url: 'https://mcp.supabase.com/mcp',
-    autenticacao: ['token', 'oauth'],
+    autenticacao: ['oauth', 'token'],
     escopos: [],
-    requisitos: ['Personal access token; optional project scope and read-only mode.'],
+    requisitos: ['Entre pelo navegador sem criar aplicativo OAuth. Token pessoal e uma alternativa; chaves anon/service_role do projeto nao servem para este MCP.'],
     documentacao: 'https://supabase.com/docs/guides/ai-tools/mcp',
     fase: 'a',
   },
@@ -44,7 +46,7 @@ export const catalogo: ItemCatalogo[] = [
     fallbackSse: 'https://mcp.notion.com/sse',
     autenticacao: ['oauth'],
     escopos: [],
-    requisitos: ['OAuth is planned for phase 0.4.0-b.'],
+    requisitos: ['Autorize o workspace do Notion pelo navegador.'],
     documentacao: 'https://developers.notion.com/guides/mcp/overview',
     fase: 'b',
   },
@@ -66,7 +68,7 @@ export const catalogo: ItemCatalogo[] = [
           ]
         : [],
     requisitos: [
-      'Google Developer Preview; user-owned client ID/secret and enabled MCP APIs. OAuth is planned for phase 0.4.0-b.',
+      'Google Developer Preview; exige Client ID/secret proprio, APIs MCP habilitadas e redirect http://127.0.0.1:43219/oauth/callback.',
     ],
     documentacao: 'https://developers.google.com/workspace/guides/configure-mcp-servers',
     fase: 'b',
@@ -83,19 +85,34 @@ export const catalogo: ItemCatalogo[] = [
     autenticacao: ['oauth_cliente_proprio'],
     escopos: [],
     requisitos: [
-      'Microsoft preview; Microsoft 365 Copilot and a user-owned Entra ID app. OAuth is planned for phase 0.4.0-b. The endpoint depends on the tenant.',
+      'Microsoft preview; exige aplicativo Entra proprio, Microsoft 365 Copilot e endpoint especifico do tenant. Configure via integracao personalizada.',
     ],
     documentacao: 'https://learn.microsoft.com/microsoft-agent-365/tooling-servers-overview',
     fase: 'b',
     preview: true,
   })),
   {
+    id: 'canva',
+    nome: 'Canva',
+    descricao: 'Designs e edicao via MCP oficial.',
+    url: 'https://mcp.canva.com/mcp',
+    autenticacao: ['oauth', 'oauth_cliente_proprio'],
+    escopos: [],
+    requisitos: [
+      'Entre pelo navegador com sua conta Canva, sem chave de API. O servidor oferece registro dinamico OAuth; o acesso a equipe e aos recursos depende das permissoes da conta. Cliente proprio e uma opcao avancada e exige cadastro do aplicativo no Canva.',
+    ],
+    documentacao: 'https://www.canva.dev/docs/apps/mcp/access/',
+    fase: 'b',
+  },
+  {
     id: 'personalizada',
     nome: 'Custom MCP server',
     descricao: 'Server not verified by Orquestrador.',
     autenticacao: ['token', 'nenhuma', 'oauth'],
     escopos: [],
-    requisitos: ['Provide an HTTP/SSE URL or a stdio command. OAuth is planned for phase 0.4.0-b.'],
+    requisitos: [
+      'Informe URL HTTP/SSE ou comando stdio. OAuth remoto suporta navegador, PKCE e cliente proprio.',
+    ],
     documentacao: 'https://modelcontextprotocol.io',
     fase: 'a',
   },

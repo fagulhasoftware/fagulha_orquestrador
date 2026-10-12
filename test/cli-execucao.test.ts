@@ -19,6 +19,7 @@ for (const id of ['claude', 'codex', 'gemini'] as CliId[]) {
         `
         const fs=require('fs');const args=process.argv.slice(2);
         if(args.includes('--version')){console.log('fixture 1.0');process.exit(0);}
+        if(args.includes('status')){console.log(args.includes('auth')?JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'fixture@example.test'}):'Logged in using ChatGPT');process.exit(0);}
         if(args[0]==='mcp'){console.log(JSON.stringify([{name:'herdado',enabled:true,transport:{type:'stdio',command:'node',args:[]}}]));process.exit(0);}
         const settings=process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
         const caminhoMcp=args[args.indexOf('--mcp-config')+1];

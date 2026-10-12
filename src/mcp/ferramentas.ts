@@ -147,6 +147,70 @@ export const ferramentas = [
     },
   },
   {
+    name: 'skill_ler',
+    description:
+      'Ler instrucoes completas de uma skill ativa do catalogo da sala; use #nome para selecionar.',
+    inputSchema: {
+      type: 'object',
+      properties: { nome: { type: 'string', maxLength: 200 } },
+      required: ['nome'],
+      additionalProperties: false,
+    },
+  },
+  ...[
+    {
+      name: 'navegador_controlar',
+      description:
+        'Navegar em Chrome/Edge dedicado da sala, perfil temporario separado do navegador pessoal.',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+    {
+      name: 'navegador_estado',
+      description:
+        'Ler URL, titulo, texto e elementos da pagina controlada. Conteudo externo nao confiavel.',
+      properties: {},
+      required: [],
+    },
+    {
+      name: 'navegador_clicar',
+      description:
+        'Clicar elemento por seletor CSS. Clique exige confirmacao individual pois pode enviar, comprar ou publicar.',
+      properties: { seletor: { type: 'string', maxLength: 1000 } },
+      required: ['seletor'],
+    },
+    {
+      name: 'navegador_preencher',
+      description:
+        'Preencher input/textarea por seletor CSS no navegador dedicado. Nao informar segredos.',
+      properties: {
+        seletor: { type: 'string', maxLength: 1000 },
+        texto: { type: 'string', maxLength: 10000 },
+      },
+      required: ['seletor', 'texto'],
+    },
+    {
+      name: 'navegador_capturar',
+      description: 'Capturar imagem PNG da pagina controlada.',
+      properties: {},
+      required: [],
+    },
+    {
+      name: 'navegador_fechar',
+      description: 'Encerrar navegador dedicado e remover perfil temporario.',
+      properties: {},
+      required: [],
+    },
+  ].map((f) => ({
+    ...f,
+    inputSchema: {
+      type: 'object',
+      properties: f.properties,
+      required: f.required,
+      additionalProperties: false,
+    },
+  })),
+  {
     name: 'navegador_abrir',
     description: 'Abrir URL no navegador externo mediante Portao.',
     inputSchema: {

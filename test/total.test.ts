@@ -72,8 +72,9 @@ test('Codex Total preserva MCPs e aplica configuracao tambem em retomada', () =>
       lista,
     );
     assert(args.includes(sessao ? 'sandbox_mode="danger-full-access"' : 'danger-full-access'));
-    assert(args.includes('features.shell_tool=false'));
-    assert(args.includes('features.unified_exec=false'));
+    assert(!args.includes('features.shell_tool=false'));
+    assert(!args.includes('features.unified_exec=false'));
+    assert(args.includes('features.apps=true'));
     assert(!args.includes('features.apply_patch_freeform=false'));
     assert(args.includes('web_search="live"'));
     assert(!args.some((a) => /enabled=false/.test(a)));

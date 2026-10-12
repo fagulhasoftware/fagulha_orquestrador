@@ -1,5 +1,13 @@
 # Orquestrador Fagulha
 
+## Specialists and native resources (0.4.2)
+
+Use `@` for room participants, `#` for specialist skills/apps/MCP integrations and `/` for room commands.
+Examples: `@codex #canva prepare a design`, `@claude #code-review review the diff`.
+Full mode preserves native provider features and existing connections. The room lists actual Codex app metadata separately from shared MCP connections; an app available to Codex is not automatically authenticated for another provider.
+Skills can be discovered/imported and read through the shared `skill_ler` tool. Remote MCP OAuth supports browser sign-in, PKCE and SecretStorage. Some vendors require a registered OAuth client.
+`/pausar` interrupts a turn; `/continuar` resumes the agent using available context/session, rather than freezing model reasoning. `/skills`, `/integracoes`, `/agentes` and `/ajuda` open room functions.
+
 **English** · [Português (Brasil)](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.pt-BR.md) · [Español](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.es.md) · [Deutsch](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.de.md)
 
 A private chat room inside VS Code where your AI agents — Claude Code, Codex, Gemini CLI, Ollama and
@@ -32,18 +40,20 @@ Everything happens **on your computer**. There is no Fagulha server, no Fagulha 
   after transcription. Voice components are downloaded only with your permission.
 - **Chats and persistent memory**: every conversation stays in the **Chats** menu (searchable) and comes
   back when you reopen VS Code; **New chat** starts fresh without losing anything. **Memory** keeps
-  preferences and decisions that agents receive in every chat; proposals are saved automatically on Full
+  active preferences and decisions selected for the current project within a context budget; proposals are saved automatically on Full
   and ask for your approval on the other levels.
-- **Context from other chats**: import previous Claude Code, Codex or room conversations.
+- **Context from other chats**: import the most recent text from previous Claude Code, Codex or room conversations.
+  Older decisions are not automatically preserved. See [decision handoffs and their limits](docs/CONTEXT_HANDOFF.md).
 - **Extensible**: new agents through manifests or other extensions (`FagulhaSoftware.orquestrador-fagulha`).
 
 ## Requirements
 
 - VS Code 1.95 or later.
 - At least one agent:
-  - [Claude Code](https://code.claude.com) (CLI or VS Code extension), with a Claude or Anthropic Console account;
-  - [Codex](https://developers.openai.com/codex) (CLI or VS Code extension), with a ChatGPT account or an OpenAI key;
+  - [Claude Code](https://code.claude.com) (CLI or VS Code extension), with a Claude subscription account (API keys belong to the separate Anthropic participant);
+  - [Codex](https://developers.openai.com/codex) (CLI or VS Code extension), with a ChatGPT account (API keys belong to the separate OpenAI participant);
   - [Gemini CLI](https://geminicli.com), with a Google AI Studio key;
+  - Mistral Vibe / Mistral Code Enterprise via ACP, with independent native browser profiles; Mistral API uses a separate key participant;
   - [Ollama](https://ollama.com), running locally;
   - or an API key from a compatible provider.
 
@@ -136,7 +146,7 @@ Acknowledged contribution: Fagulha Software 50%, Codex 30%, Claude 20%. Details 
 [MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini and Ollama are trademarks of their
 respective owners; Orquestrador Fagulha is compatible with these tools, with no official affiliation or endorsement.
 
-## Codex on the Full level (0.3.0)
+## Historical: Codex on the Full level (0.3.0)
 
 Codex gets complete file access in read-and-write mode, live web search, and keeps the MCP servers configured by
 the user. Read-only mode keeps the read-only sandbox. The native shell is turned off: commands go through
