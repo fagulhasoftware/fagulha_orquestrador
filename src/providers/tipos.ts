@@ -12,6 +12,7 @@ export interface PonteSessao {
   diretorio: string;
 }
 export interface PedidoExecucao {
+  ferramentas?: import('@modelcontextprotocol/sdk/types.js').Tool[];
   prompt: string;
   projeto: string;
   modo: ModoAgente;
@@ -19,9 +20,11 @@ export interface PedidoExecucao {
   sessao?: string;
   ponte: PonteSessao;
   imagens?: { mime: string; base64: string }[];
+  caminhosImagens?: string[];
   ferramenta?: (nome: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 export interface EventosProvedor {
+  fase?(tipo: import('../shared/protocolo').TipoFase, detalhe?: string): void;
   sessao(id: string): void;
   fala(texto: string): void;
   parcial(texto: string): void;
@@ -53,6 +56,7 @@ export function agentePadrao(
     id,
     nick,
     tipo,
+    autenticacaoModo: tipo === 'api' ? 'api' : 'conta',
     cor,
     apelidos,
     origem: 'embutido',

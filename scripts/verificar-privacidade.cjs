@@ -9,7 +9,7 @@ const documentos = new Set([
   'readme.md',
   'license',
   'license.txt',
-  'privacidade.md',
+  'privacy.md',
   'changelog.md',
 ]);
 const midias = new Set(['logo.png', 'logo-barra.png', 'orquestra.css', 'orquestra.svg']);
@@ -73,6 +73,8 @@ function motivosArquivo(nome) {
   )
     return ['caminho inseguro no arquivo ZIP'];
   const motivos = [];
+  if (/\.(?:exe|dll|bin|wav|mp3|ogg|flac)$/i.test(caminho))
+    motivos.push('binario de voz, modelo ou audio proibido no pacote');
   if (
     partes.some((p) => /^(?:orquestra|test|scripts|\.npm-cache|node_modules)$/i.test(p)) ||
     partes.some((p) => /^\.env/i.test(p) || /\.(?:sqlite(?:-.*)?|log|map)$/i.test(p))

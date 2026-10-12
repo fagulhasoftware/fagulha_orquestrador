@@ -10,6 +10,7 @@ import {
   type EventosProvedor,
 } from './tipos';
 import { rodar } from './processo';
+import { ambienteConta } from './autenticacao';
 import { mascarar } from '../core/seguranca';
 const schema = z
   .object({
@@ -57,6 +58,7 @@ export class CliGenerico implements Provedor {
     try {
       const versao = await rodar(this.opcoes().comando ?? this.m.comando!, ['--version'], {
         timeoutMs: 5000,
+        env: ambienteConta(),
       });
       return { instalado: true, versao: versao.trim().slice(0, 100) };
     } catch {
@@ -78,6 +80,7 @@ export class CliGenerico implements Provedor {
     );
     const resultado = await rodar(this.opcoes().comando ?? this.m.comando!, args, {
       cwd: p.projeto,
+      env: ambienteConta(),
       sinal,
       stdin: p.prompt,
       linha:

@@ -16,7 +16,7 @@ export const ouvir = (fn: (msg: DoHost) => void): void =>
 
 // Estado local do proprio webview (rascunho, aba): sobrevive a ocultar/mostrar o painel.
 export interface Local { rascunho: string; vista: Vista }
-export type Vista = 'chat' | 'agentes' | 'config';
+export type Vista = 'chat' | 'agentes' | 'config' | 'chats' | 'integracoes';
 export const local = (): Local => ({ rascunho: '', vista: 'chat', ...(api.getState() as Partial<Local> | undefined) });
 export const salvarLocal = (parcial: Partial<Local>): void => api.setState({ ...local(), ...parcial });
 
@@ -50,6 +50,12 @@ const PATHS: Record<string, string> = {
   voltar: 'M6.5 3 1.5 8l5 5 1-1-3.3-3.3H14.5V7.3H4.2L7.5 4z',
   escudo: 'M8 1 2 3.5V8c0 3.3 2.6 6.2 6 7 3.4-.8 6-3.7 6-7V3.5zm0 1.5 4.6 1.9V8c0 2.5-1.9 4.8-4.6 5.5z',
   mais: 'M7.3 2h1.4v5.3H14v1.4H8.7V14H7.3V8.7H2V7.3h5.3z',
+  som: 'M2 6h2.5L8 3v10L4.5 10H2zm8.2-.9a4 4 0 0 1 0 5.8l-1-1a2.6 2.6 0 0 0 0-3.8zm2-2a6.8 6.8 0 0 1 0 9.8l-1-1a5.4 5.4 0 0 0 0-7.8z',
+  chats: 'M1.5 2h9v6.5H5L2.5 11V8.5h-1zm1.4 1.4v3.7h1V8l1.5-1.5h4.7V3.4zM12 5h2.5v6.5h-1V14L11 11.5H6V10h5.6l.4.4v-.4h1.1V6.4H12z',
+  fixar: 'M10.5 1.5 14.5 5.5l-1 1-1-.4-2.6 2.6.3 2.8-1 1L6.6 9.9 3 13.5 2.5 13l3.6-3.6L3.5 6.8l1-1 2.8.3 2.6-2.6-.4-1z',
+  lapis: 'M11.3 1.7a1.6 1.6 0 0 1 2.3 0l.7.7a1.6 1.6 0 0 1 0 2.3L5.6 13.4 1.5 14.5l1.1-4.1zM3.8 10.9l-.5 1.8 1.8-.5 7.4-7.4-1.3-1.3z',
+  lixeira: 'M6 1h4l.5 1H14v1.4H2V2h3.5zM3 4.5h10l-.8 10.5H3.8zm1.5 1.4.6 7.7h5.8l.6-7.7z',
+  plug: 'M5 1h1.4v3h3.2V1H11v3h1.5v3.2A4.5 4.5 0 0 1 8.7 11.6V15H7.3v-3.4A4.5 4.5 0 0 1 3.5 7.2V4H5zm-.1 4.4v1.8a3.1 3.1 0 0 0 6.2 0V5.4z',
   copiar: 'M4 4V1.5h10.5V12H12v2.5H1.5V4zm1.4 0H12v6.6h1.1V2.9H5.4zM2.9 5.4v7.7h7.7V5.4z',
 };
 export function icone(nome: keyof typeof PATHS | string, titulo?: string): SVGSVGElement {
@@ -71,7 +77,12 @@ export function botaoIcone(nome: string, titulo: string, onclick: () => void, ex
   return h('button', { class: `bi ${extra}`, title: titulo, 'aria-label': titulo, type: 'button', onclick: () => onclick() }, icone(nome));
 }
 
-export const hora = (iso: string): string => iso.slice(11, 16);
+// Os horarios chegam em UTC (ISO); a exibicao usa o fuso e o idioma do computador.
+export const hora = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 16);
+  return d.toLocaleTimeString(navigator.language || undefined, { hour: '2-digit', minute: '2-digit' });
+};
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;

@@ -1,116 +1,164 @@
 # Orquestrador Fagulha
 
-Uma sala de chat privada dentro do VS Code onde os seus agentes de IA — Claude Code, Codex, Gemini CLI,
-Ollama e modelos por chave de API — conversam entre si e com você, compartilham o que leem e escrevem,
-e só agem dentro das permissões que você definir.
+## Specialists and native resources (0.4.2)
 
-Tudo acontece **no seu computador**. Não existe servidor da Fagulha, conta da Fagulha ou sincronização.
+Use `@` for room participants, `#` for specialist skills/apps/MCP integrations and `/` for room commands.
+Examples: `@codex #canva prepare a design`, `@claude #code-review review the diff`.
+Full mode preserves native provider features and existing connections. The room lists actual Codex app metadata separately from shared MCP connections; an app available to Codex is not automatically authenticated for another provider.
+Skills can be discovered/imported and read through the shared `skill_ler` tool. Remote MCP OAuth supports browser sign-in, PKCE and SecretStorage. Some vendors require a registered OAuth client.
+`/pausar` interrupts a turn; `/continuar` resumes the agent using available context/session, rather than freezing model reasoning. `/skills`, `/integracoes`, `/agentes` and `/ajuda` open room functions.
 
-## Recursos
+**English** · [Português (Brasil)](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.pt-BR.md) · [Español](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.es.md) · [Deutsch](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/README.de.md)
 
-- **Uma sala por janela do VS Code**: mencione `@claude`, `@codex`, `@gemini` ou `@todos` para acionar
-  os agentes. Um agente pode passar a palavra a outro mencionando-o.
-- **Seus agentes, seus logins**: entre com a sua conta do Claude ou do ChatGPT pelo navegador, ou use
-  chaves de API (OpenAI, Anthropic, Google AI Studio, servidores compatíveis com OpenAI). Chaves são
-  testadas no provedor antes de serem guardadas no cofre seguro do VS Code.
-- **Três níveis de permissão**, escolhidos na primeira execução:
-  - **Manual** — você aprova 100% das ações dos agentes;
-  - **Parcial** — livre dentro da pasta do projeto, aprovação para o resto;
-  - **Total** — acesso completo com aviso de cada ação; ações críticas (apagar, publicar, credenciais)
-    continuam pedindo aprovação.
-- **Modos por agente**: leitura e escrita, só leitura ou só escrita, além de um papel livre
-  (ex.: "arquiteto", "revisor").
-- **Anexos**: texto, código, Markdown, imagens, PDF e Word. Planilhas nunca são lidas por inteiro:
-  o Orquestrador envia apenas cabeçalho e amostra de linhas, com limite de tamanho.
-- **Contexto de outros chats**: importe conversas anteriores do Claude Code, do Codex ou de outras salas.
-- **Extensível**: novos agentes por manifesto ou por outras extensões (`FagulhaSoftware.orquestrador-fagulha`).
+A private chat room inside VS Code where your AI agents — Claude Code, Codex, Gemini CLI, Ollama and
+API-key models — talk to each other and to you, share what they read and write, and only act within the
+permissions you set.
 
-## Requisitos
+Everything happens **on your computer**. There is no Fagulha server, no Fagulha account and no sync.
 
-- VS Code 1.95 ou superior.
-- Pelo menos um agente:
-  - [Claude Code](https://code.claude.com) (CLI ou extensão do VS Code), com uma conta Claude ou do Anthropic Console;
-  - [Codex](https://developers.openai.com/codex) (CLI ou extensão do VS Code), com uma conta ChatGPT ou chave da OpenAI;
-  - [Gemini CLI](https://geminicli.com), com uma chave do Google AI Studio;
-  - [Ollama](https://ollama.com), rodando localmente;
-  - ou uma chave de API de um provedor compatível.
+## Features
 
-O Orquestrador Fagulha não inclui nem revende acesso a modelos: cada usuário usa as próprias contas e
-paga diretamente aos provedores, quando houver cobrança.
+- **One room per VS Code window**: mention `@claude`, `@codex`, `@gemini` or `@todos` (everyone) to call
+  the agents. An agent can hand the turn to another by mentioning it.
+- **Your agents, your logins**: sign in with your Claude or ChatGPT account in the browser, or use API keys
+  (OpenAI, Anthropic, Google AI Studio, OpenAI-compatible servers). Keys are tested with the provider before
+  being stored in VS Code's secure storage.
+- **Three permission levels**, chosen on first run:
+  - **Manual** — you approve 100% of the agents' actions;
+  - **Partial** — free inside the project folder, approval for everything else;
+  - **Full** — complete access; known irreversible external commands ask for confirmation.
+    Codex gets network, web search and your inherited MCP servers; commands run through the room.
+- **Per-agent modes**: read and write, read-only or write-only, plus a free-form role
+  (e.g. "architect", "reviewer").
+- **Attachments**: text, code, Markdown, images, PDF and Word. Images reach the agents as images.
+  Spreadsheets are never read in full: Orquestrador sends only the header and a sample of rows, with a size
+  limit.
+- **Agent stages and guided questions**: follow what each agent is doing and get questions with suggested
+  answers when it needs a decision; the room pauses until you answer.
+- **Voice chat**: talk to the room through your microphone and listen to the agents' answers.
+  Transcription (whisper.cpp) and speech (your system voice) run on your computer; the recording is deleted
+  after transcription. Voice components are downloaded only with your permission.
+- **Chats and persistent memory**: every conversation stays in the **Chats** menu (searchable) and comes
+  back when you reopen VS Code; **New chat** starts fresh without losing anything. **Memory** keeps
+  active preferences and decisions selected for the current project within a context budget; proposals are saved automatically on Full
+  and ask for your approval on the other levels.
+- **Context from other chats**: import the most recent text from previous Claude Code, Codex or room conversations.
+  Older decisions are not automatically preserved. See [decision handoffs and their limits](docs/CONTEXT_HANDOFF.md).
+- **Extensible**: new agents through manifests or other extensions (`FagulhaSoftware.orquestrador-fagulha`).
 
-## Instalação
+## Requirements
 
-- **Pela loja do VS Code:** abra a aba Extensões (`Ctrl+Shift+X`), pesquise **Orquestrador Fagulha** e
-  clique em **Instalar**.
-- **Por arquivo `.vsix`:** baixe o pacote na página de [Releases](https://github.com/fagulhasoftware/fagulha_orquestrador/releases) e use
-  *Extensões → `...` → Instalar do VSIX*, ou `code --install-extension orquestrador-fagulha-<versão>.vsix`.
+- VS Code 1.95 or later.
+- At least one agent:
+  - [Claude Code](https://code.claude.com) (CLI or VS Code extension), with a Claude subscription account (API keys belong to the separate Anthropic participant);
+  - [Codex](https://developers.openai.com/codex) (CLI or VS Code extension), with a ChatGPT account (API keys belong to the separate OpenAI participant);
+  - [Gemini CLI](https://geminicli.com), with a Google AI Studio key;
+  - Mistral Vibe / Mistral Code Enterprise via ACP, with independent native browser profiles; Mistral API uses a separate key participant;
+  - [Ollama](https://ollama.com), running locally;
+  - or an API key from a compatible provider.
 
-Cada instalação é independente: o Orquestrador começa limpo, sem conversas, contas ou configurações de
-outra pessoa.
+Orquestrador Fagulha does not include or resell model access: each user brings their own accounts and pays
+the providers directly, when there is a charge.
 
-## Primeiros passos
+## Installation
 
-1. Abra o **Orquestrador Fagulha** na barra lateral.
-2. Siga o assistente: escolha os agentes, faça login e defina o nível de permissão.
-3. Escreva na sala mencionando um agente, por exemplo: `@claude explique a estrutura deste projeto`.
+- **From the VS Code Marketplace:** open Extensions (`Ctrl+Shift+X`), search for **Orquestrador Fagulha**
+  and click **Install**.
+- **From a `.vsix` file:** download the package from
+  [Releases](https://github.com/fagulhasoftware/fagulha_orquestrador/releases) and use
+  *Extensions → `...` → Install from VSIX*, or `code --install-extension orquestrador-fagulha-<version>.vsix`.
 
-## Privacidade
+Every installation is independent: Orquestrador starts clean, with no conversations, accounts or settings from
+anyone else.
 
-- Conversas, ações, aprovações e anexos ficam somente em `~/.orquestra/dados`, no seu computador.
-- Credenciais ficam no SecretStorage do VS Code e nunca são gravadas em arquivo, log ou banco local.
-- O Orquestrador não tem telemetria. As únicas conexões de rede são as que você ou seus agentes fazem
-  com os provedores que você mesmo configurou.
+## Getting started
 
-Detalhes em [PRIVACIDADE.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/PRIVACIDADE.md).
+1. Open **Orquestrador Fagulha** in the Activity Bar.
+2. Follow the setup: choose your agents, sign in and pick a permission level.
+3. Write in the room mentioning an agent, for example: `@claude explain the structure of this project`.
 
-## Limitações conhecidas
+## Commands and shortcuts
 
-- Entrada por voz ainda não está disponível.
-- Planilhas `.xls`, `.xlsb` e `.ods` são recusadas; converta para `.xlsx` ou `.csv`.
+Every mention, chat command, keyboard shortcut, button and setting — and when to use each one — is listed in
+[docs/COMMANDS.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/COMMANDS.md). The essentials: `@agent` calls an agent, `@todos` calls everyone, `/stop`
+stops the current agent, `/remember <text>` saves a memory, `Ctrl+Alt+V` starts voice input.
 
-## Desenvolvimento
+## Privacy
 
-Pré-requisitos: [Node.js](https://nodejs.org) 20 ou superior, Git e VS Code 1.95 ou superior.
+- Conversations, actions, approvals and attachments are stored only in `~/.orquestra/dados`, on your computer.
+- Credentials live in VS Code's SecretStorage and are never written to files, logs or the local database.
+- No telemetry. The only network connections are the ones you or your agents make to the providers you
+  configured yourself.
+
+Details in [PRIVACY.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/PRIVACY.md).
+
+## Known limitations
+
+- Voice: components install automatically on Windows; on macOS and Linux the setup shows the command to
+  install ffmpeg and whisper.cpp.
+- `.xls`, `.xlsb` and `.ods` spreadsheets are rejected; convert them to `.xlsx` or `.csv`.
+- The interface is being translated; some messages may still appear in Portuguese.
+
+## Development
+
+Prerequisites: [Node.js](https://nodejs.org) 20 or later, Git and VS Code 1.95 or later.
 
 ```bash
 git clone https://github.com/fagulhasoftware/fagulha_orquestrador.git
 cd fagulha_orquestrador
 npm install
-npm run build        # compila a extensão, o servidor MCP e a interface em dist/
-npm test             # testes automatizados (não usam rede real nem contas reais)
+npm run build        # builds the extension, the MCP server and the UI into dist/
+npm test             # automated tests (no real network, no real accounts)
 ```
 
-Para testar no VS Code, abra a pasta do projeto e pressione **F5**: uma nova janela ("Extension
-Development Host") abre com a extensão carregada a partir do código-fonte.
+To try it in VS Code, open the project folder and press **F5**: a new "Extension Development Host" window
+opens with the extension loaded from source.
 
-Outros comandos:
+Other commands:
 
-| Comando | Para quê |
+| Command | Purpose |
 |---|---|
-| `npm run check:webview` | Verificação estrita de tipos de todo o projeto |
-| `npm run format` | Formata o código com Prettier |
-| `npm run package` | Gera o `.vsix` e roda o verificador de privacidade do pacote |
-| `npm run smoke:clis` | Detecta os CLIs instalados e mostra os argumentos montados, sem chamar modelos |
+| `npm run check:webview` | Strict type check of the whole project |
+| `npm run format` | Formats the code with Prettier |
+| `npm run package` | Builds the `.vsix` and runs the package privacy check |
+| `npm run smoke:clis` | Detects installed CLIs and prints the generated arguments, without calling models |
 
-A arquitetura está descrita em [docs/ARQUITETURA.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/ARQUITETURA.md).
+The architecture is described in [docs/ARQUITETURA.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/docs/ARQUITETURA.md) (Portuguese).
 
-## Contribuindo
+## Contributing
 
-Contribuições são bem-vindas: correções, novos agentes, melhorias de interface, documentação e traduções.
-Leia o [guia de contribuição](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/CONTRIBUTING.md) e o
-[código de conduta](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/CODE_OF_CONDUCT.md) antes de abrir uma *issue* ou um *pull request*.
+Contributions are welcome: fixes, new agents, UI improvements, documentation and translations.
+Please read the [contributing guide](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/CONTRIBUTING.md) and the
+[code of conduct](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/CODE_OF_CONDUCT.md) before opening an issue or a pull request.
 
-## Segurança
+## Security
 
-Não relate vulnerabilidades em *issues* públicas. Siga a [política de segurança](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/SECURITY.md).
+Do not report vulnerabilities in public issues. Follow the [security policy](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/SECURITY.md).
 
-## Autoria
+## Authors
 
-Produto da **Fagulha Software**, construído com o Codex (OpenAI) e o Claude (Anthropic).
-Contribuição reconhecida: Fagulha Software 50%, Codex 30%, Claude 20%. Detalhes em
-[AUTORES.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/AUTORES.md).
+A **Fagulha Software** product, built with Codex (OpenAI) and Claude (Anthropic).
+Acknowledged contribution: Fagulha Software 50%, Codex 30%, Claude 20%. Details in
+[AUTHORS.md](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/AUTHORS.md).
 
-## Licença
+## License
 
-[MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini e Ollama são marcas de seus respectivos
-titulares; o Orquestrador Fagulha é compatível com essas ferramentas, sem vínculo ou endosso oficial.
+[MIT](https://github.com/fagulhasoftware/fagulha_orquestrador/blob/main/LICENSE) © Fagulha. Claude, Codex, ChatGPT, Gemini and Ollama are trademarks of their
+respective owners; Orquestrador Fagulha is compatible with these tools, with no official affiliation or endorsement.
+
+## Historical: Codex on the Full level (0.3.0)
+
+Codex gets complete file access in read-and-write mode, live web search, and keeps the MCP servers configured by
+the user. Read-only mode keeps the read-only sandbox. The native shell is turned off: commands go through
+`comando_executar`, with a timeout, an output limit and auditing. Manual and Partial keep the previous behavior.
+
+On CLI 0.160.0, local verification confirmed web search and no native shell; `apply_patch` was not offered in that
+scenario either. Use `arquivo_escrever` to edit files. Availability of native tools may vary with the CLI and the
+model.
+
+The approval gate asks for individual confirmation of known external commands for deletion, destruction, forced
+push and destructive SQL with an explicit remote host. The classifier is a heuristic: scripts, aliases, implicit
+remote connections and tools from inherited MCP servers may perform actions outside that classification. Direct
+MCP calls and native edits do not go through the approval gate; guidance in the context is not a technical
+barrier. Room tools still refuse known sensitive destinations. Stop is always available. This item covers Codex
+access; neural voice and other features planned for 0.3.0 are not included.

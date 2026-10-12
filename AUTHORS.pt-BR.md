@@ -1,5 +1,7 @@
 # Autoria
 
+[English](AUTHORS.md)
+
 ## Titularidade
 
 O Orquestrador Fagulha é um produto da **Fagulha Software**, titular de todos os direitos sobre o projeto,
@@ -21,4 +23,4 @@ Os assistentes de IA atuaram sob direção e aprovação da Fagulha Software e n
 ## Comunidade
 
 Contribuições da comunidade são bem-vindas e passam a constar no histórico do repositório. Veja o
-[guia de contribuição](CONTRIBUTING.md).
+[guia de contribuição](CONTRIBUTING.pt-BR.md).

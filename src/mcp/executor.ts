@@ -4,8 +4,14 @@ import { Sala } from '../core/sala';
 import { caminhoReal, dentro, mascarar, sensivel } from '../core/seguranca';
 import { validarArgumentos } from './ferramentas';
 import { lerPagina, validarUrl } from '../browser/pagina';
+import { NavegadorControlado } from '../browser/controle';
 import { rodar } from '../providers/processo';
 import type { CategoriaAcao } from '../shared/protocolo';
+import { validarMemoria } from '../core/memoria';
+import { irreversivelExterno } from '../permissions/irreversivel';
+import { lerImagem, eConteudoImagem } from '../attachments/imagem';
+import { ErroFerramenta } from './erros';
+import type { Integracoes } from '../integrations/gestor';
 export function comandoCritico(comando: string): boolean {
   if (
     /\b(rm|rmdir|del|erase|Remove-Item|format|mkfs|diskpart|shutdown|reboot|drop|truncate)\b|\bgit\s+(push|reset|clean)\b|\b(npm|pnpm|yarn)\s+publish\b|\b(curl|wget|Invoke-WebRequest)\b|[;&|`<>\r\n]|\$\(/i.test(
@@ -26,11 +32,30 @@ function validarComando(comando: string): void {
   )
     throw new Error('Comando contem destino protegido ou conteudo invalido.');
 }
+// Claude Code internal tools that only plan or organize the session (no file, network or process effect).
+const FERRAMENTAS_INTERNAS = new Set([
+  'TodoWrite',
+  'TodoRead',
+  'ExitPlanMode',
+  'Task',
+  'Agent',
+  'ToolSearch',
+]);
+
 export class ExecutorFerramentas {
+  private navegadores = new Map<string, NavegadorControlado>();
+  private sinaisNavegador = new WeakMap<NavegadorControlado, WeakSet<AbortSignal>>();
+  async fecharNavegadores() {
+    await Promise.all([...this.navegadores.values()].map((n) => n.fechar()));
+    this.navegadores.clear();
+  }
   constructor(
     private sala: Sala,
     private raizes: string[],
     private abrir: (url: string) => Promise<void>,
+    private pastaSessoes?: string,
+    private integracoes?: Integracoes,
+    private skills?: { ler(nome: string): Promise<string> },
   ) {}
   async executar(
     id: string,
@@ -41,14 +66,42 @@ export class ExecutorFerramentas {
     const args = validarArgumentos(nome, entrada);
     const agente = this.sala.provedores.get(id)?.agente;
     if (!agente || sinal.aborted) throw new Error('Execucao encerrada.');
+    if (nome === 'perguntar_usuario') return this.sala.perguntas.perguntar(id, args, sinal);
+    const chatId = this.sala.chat.id;
+    const confirmarChat = async () => {
+      if (this.sala.chat.id !== chatId || sinal.aborted)
+        throw new Error('Execucao encerrada ao trocar de chat.');
+      await this.sala.chats.obter(chatId);
+    };
+    if (/^[a-z][a-z0-9-]*__[A-Za-z0-9_-]+$/.test(nome)) {
+      if (!this.integracoes) throw new ErroFerramenta('Portal de integracoes indisponivel.');
+      const resultado = await this.integracoes.executar(
+        id,
+        agente.modo,
+        nome,
+        args,
+        sinal,
+        confirmarChat,
+      );
+      this.sala.mensagem(
+        agente.nick,
+        `Resultado ${nome}: dado externo recebido${resultado.isError ? ' com erro' : ''}.`,
+        'acao',
+      );
+      return resultado;
+    }
     if (nome === 'aprovar') {
       const ferramenta = String(args.tool_name).replace(/^mcp__fagulha_orquestrador__/, '');
       if (String(args.tool_name).startsWith('mcp__fagulha_orquestrador__')) {
+        // Orquestrador tools run their own approval gate; here only their arguments are checked.
         try {
           const input = validarArgumentos(ferramenta, args.input ?? {});
           return { behavior: 'allow', updatedInput: input };
-        } catch {
-          /* so libera ferramentas conhecidas que farao seu proprio Portao */
+        } catch (e) {
+          return {
+            behavior: 'deny',
+            message: `Orquestrador tool ${ferramenta} rejected its arguments: ${e instanceof Error ? e.message : 'invalid arguments'}`,
+          };
         }
       }
       if (this.sala.config.nivel === 'manual')
@@ -62,11 +115,24 @@ export class ExecutorFerramentas {
         let categoria: CategoriaAcao,
           detalhe: string,
           critica = false;
-        if (ferramentaNativa === 'Bash') {
+        if (FERRAMENTAS_INTERNAS.has(ferramentaNativa)) {
+          // Planning/bookkeeping tools of the CLI itself: no effect outside the agent session.
+          return { behavior: 'allow', updatedInput: input };
+        } else if (/^mcp__[\w.-]+__[\w.-]+$/.test(ferramentaNativa)) {
+          // Tools from MCP servers configured by the user (Figma, Gmail, Supabase, GitHub...).
+          const nomeAcao = ferramentaNativa.split('__').slice(2).join('__').toLowerCase();
+          categoria = /(delete|remove|drop|destroy|purge|truncate|erase|wipe)/.test(nomeAcao)
+            ? 'irreversivel_externo'
+            : /(send|publish|post|reply|forward|invite|share|create_release|merge)/.test(nomeAcao)
+              ? 'publicacao'
+              : 'externo';
+          detalhe = `${ferramentaNativa} ${JSON.stringify(input).slice(0, 1500)}`;
+          critica = categoria === 'irreversivel_externo';
+        } else if (ferramentaNativa === 'Bash') {
           detalhe = String(input.command ?? '');
           if (!detalhe) throw new Error('Comando vazio.');
           validarComando(detalhe);
-          categoria = 'comando';
+          categoria = irreversivelExterno(detalhe) ? 'irreversivel_externo' : 'comando';
           critica = comandoCritico(detalhe);
         } else if (ferramentaNativa === 'WebFetch' || ferramentaNativa === 'WebSearch') {
           if (ferramentaNativa === 'WebFetch') {
@@ -77,16 +143,30 @@ export class ExecutorFerramentas {
             categoria = 'rede_leitura';
           }
         } else {
-          const escrita = ['Write', 'Edit', 'MultiEdit'].includes(ferramentaNativa);
-          if (!escrita && !['Read', 'Glob', 'Grep', 'LS'].includes(ferramentaNativa))
-            throw new Error('Ferramenta nativa sem politica: use MCP.');
-          const caminho = String(input.file_path ?? input.path ?? this.sala.projeto ?? '.');
+          const escrita = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(ferramentaNativa);
+          if (
+            !escrita &&
+            !['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(ferramentaNativa)
+          )
+            throw new Error(
+              `Native tool ${ferramentaNativa} has no policy: use the Orquestrador MCP tools.`,
+            );
+          const caminho = String(
+            input.file_path ?? input.notebook_path ?? input.path ?? this.sala.projeto ?? '.',
+          );
           const real = await caminhoReal(
             resolve(this.sala.projeto ?? process.cwd(), caminho),
             escrita,
           );
           const raizes = await Promise.all(this.raizes.map((r) => realpath(r)));
-          const workspace = raizes.some((r) => dentro(r, real));
+          // Images that Orquestrador prepared for this agent (attachments of the current message) count as
+          // project reads, so the agent can see them without an extra approval.
+          const imagemDaSala =
+            !escrita &&
+            !!this.pastaSessoes &&
+            /\.(png|jpe?g|webp|gif)$/i.test(real) &&
+            dentro(await realpath(this.pastaSessoes).catch(() => this.pastaSessoes!), real);
+          const workspace = imagemDaSala || raizes.some((r) => dentro(r, real));
           categoria = escrita
             ? workspace
               ? 'escrita_workspace'
@@ -105,15 +185,14 @@ export class ExecutorFerramentas {
             detalhe,
             critica,
           },
-          async () => {},
+          confirmarChat,
           sinal,
         );
         return { behavior: 'allow', updatedInput: input };
-      } catch {
+      } catch (e) {
         return {
           behavior: 'deny',
-          message:
-            'Portao recusou a ferramenta nativa. Use MCP Orquestrador Fagulha para uma acao permitida.',
+          message: `Approval gate refused ${ferramentaNativa}${e instanceof Error && e.message ? `: ${e.message}` : ''}. Use the Orquestrador MCP tools for an allowed action.`,
         };
       }
     }
@@ -135,16 +214,49 @@ export class ExecutorFerramentas {
           critica,
         },
         async () => {
+          await confirmarChat();
           const r = await fn();
           this.sala.mensagem(
             agente.nick,
-            `Resultado ${nome}: ${mascarar(typeof r === 'string' ? r : JSON.stringify(r)).slice(0, 3000)}`,
+            `Resultado ${nome}: ${mascarar(
+              eConteudoImagem(r)
+                ? r.conteudoMcp
+                    .filter((c) => c.type === 'text')
+                    .map((c) => c.text)
+                    .join('\n')
+                : typeof r === 'string'
+                  ? r
+                  : JSON.stringify(r),
+            ).slice(0, 3000)}`,
             'acao',
           );
           return r;
         },
         sinal,
       );
+    if (nome === 'skill_ler') {
+      if (!this.skills) throw new ErroFerramenta('Catalogo de skills indisponivel.');
+      return portao('leitura_maquina', 'Ler skill especialista', String(args.nome), () =>
+        this.skills!.ler(String(args.nome)),
+      );
+    }
+    if (nome === 'memoria_propor') {
+      const texto = validarMemoria(String(args.texto));
+      const escopo = args.escopo as 'global' | 'projeto';
+      if (escopo === 'projeto' && !this.sala.projeto)
+        throw new Error('Abra uma pasta para propor memoria de projeto.');
+      return portao(
+        'memoria',
+        `Guardar na memoria: ${texto.slice(0, 100)}`,
+        `Texto: ${texto}\nEscopo: ${escopo}`,
+        async () => {
+          const memoria = await this.sala.salvarMemoria({ texto, escopo }, agente.nick);
+          return { guardada: true, id: memoria.id };
+        },
+        true,
+        true,
+      );
+    }
     if (nome === 'sala_publicar')
       return portao(
         'escrita_workspace',
@@ -183,8 +295,36 @@ export class ExecutorFerramentas {
         'Ler anexo',
         String(args.id),
         async () => {
-          const a = this.sala.anexos.get(String(args.id));
-          if (!a || !enviados.has(a.meta.id)) throw new Error('Anexo nao enviado.');
+          const chave = String(args.id);
+          let a = this.sala.anexos.get(chave);
+          if (a && !enviados.has(a.meta.id))
+            throw new ErroFerramenta('Anexo pertence a outro chat ou ainda nao foi enviado.');
+          if (!a) {
+            const candidatos = [...this.sala.anexos.values()].filter(
+              (x) => enviados.has(x.meta.id) && x.meta.nome === chave,
+            );
+            if (candidatos.length > 1)
+              throw new ErroFerramenta(
+                `Nome de anexo ambiguo; use um destes ids: ${candidatos.map((x) => x.meta.id).join(', ')}.`,
+              );
+            a = candidatos[0];
+          }
+          if (!a) {
+            if (await this.sala.storage.obter('anexos', this.sala.id, chave))
+              throw new ErroFerramenta('Anexo pertence a outro chat.');
+            throw new ErroFerramenta(
+              `Anexo nao encontrado (ids disponiveis: ${[...enviados].join(', ') || 'nenhum'}).`,
+            );
+          }
+          if (a.meta.tratamento === 'recusado')
+            throw new ErroFerramenta(
+              'Anexo recusado: arquivo maior que o limite ou tipo nao suportado.',
+            );
+          if (a.meta.tipo === 'imagem') {
+            if (!a.arquivo) throw new ErroFerramenta('Arquivo da imagem indisponivel.');
+            return lerImagem(a.arquivo, this.sala.config.limites.imagemMaxMB);
+          }
+          if (a.meta.tipo === 'outro') throw new ErroFerramenta('Tipo de anexo nao suportado.');
           return a.texto;
         },
         false,
@@ -224,6 +364,8 @@ export class ExecutorFerramentas {
             await writeFile(real, texto, { mode: 0o600 });
             return { escrito: true, bytes: Buffer.byteLength(texto) };
           }
+          if (/\.(png|jpe?g|webp|gif)$/i.test(real))
+            return lerImagem(real, this.sala.config.limites.imagemMaxMB);
           const arquivo = await open(real, 'r');
           try {
             const info = await arquivo.stat();
@@ -245,7 +387,7 @@ export class ExecutorFerramentas {
       const comando = String(args.comando);
       validarComando(comando);
       return portao(
-        'comando',
+        irreversivelExterno(comando) ? 'irreversivel_externo' : 'comando',
         'Executar shell',
         comando,
         async () => {
@@ -263,6 +405,56 @@ export class ExecutorFerramentas {
           );
         },
         comandoCritico(comando),
+      );
+    }
+    if (
+      [
+        'navegador_controlar',
+        'navegador_estado',
+        'navegador_clicar',
+        'navegador_preencher',
+        'navegador_capturar',
+        'navegador_fechar',
+      ].includes(nome)
+    ) {
+      const chave = `${chatId}:${id}`;
+      const navegador = this.navegadores.get(chave) ?? new NavegadorControlado();
+      this.navegadores.set(chave, navegador);
+      const encerrar = () => {
+        this.navegadores.delete(chave);
+        void navegador.fechar().catch(() => {});
+      };
+      const categoria =
+        nome === 'navegador_clicar'
+          ? 'irreversivel_externo'
+          : nome === 'navegador_estado' || nome === 'navegador_capturar'
+            ? 'rede_leitura'
+            : 'navegador';
+      if (nome === 'navegador_preencher' && String(args.texto) !== mascarar(String(args.texto)))
+        throw new ErroFerramenta('Nao preencher segredos pelo navegador da sala.');
+      return portao(
+        categoria,
+        nome,
+        String(args.url ?? args.seletor ?? 'Pagina dedicada'),
+        async () => {
+          await confirmarChat();
+          const sinais = this.sinaisNavegador.get(navegador) ?? new WeakSet<AbortSignal>();
+          if (!sinais.has(sinal)) {
+            sinais.add(sinal);
+            this.sinaisNavegador.set(navegador, sinais);
+            sinal.addEventListener('abort', encerrar, { once: true });
+          }
+          if (nome === 'navegador_controlar')
+            return navegador.navegar(validarUrl(String(args.url)).href);
+          if (nome === 'navegador_estado') return navegador.estado();
+          if (nome === 'navegador_clicar') return navegador.clicar(String(args.seletor));
+          if (nome === 'navegador_preencher')
+            return navegador.preencher(String(args.seletor), String(args.texto));
+          if (nome === 'navegador_capturar') return navegador.captura();
+          await navegador.fechar();
+          this.navegadores.delete(chave);
+          return { fechado: true };
+        },
       );
     }
     if (nome === 'navegador_ler' || nome === 'navegador_abrir') {

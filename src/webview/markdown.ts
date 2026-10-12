@@ -4,6 +4,7 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { enviar, h, icone } from './util';
+import { t } from './i18n';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -28,7 +29,7 @@ export function renderMarkdown(texto: string): HTMLElement {
 
   for (const pre of Array.from(raiz.querySelectorAll('pre'))) {
     const codigo = pre.textContent ?? '';
-    const btn = h('button', { class: 'copiar', type: 'button', title: 'Copiar', 'aria-label': 'Copiar codigo' }, icone('copiar'));
+    const btn = h('button', { class: 'copiar', type: 'button', title: t('Copy'), 'aria-label': t('Copy code') }, icone('copiar'));
     btn.addEventListener('click', () => {
       void navigator.clipboard.writeText(codigo).then(() => { btn.classList.add('ok'); setTimeout(() => btn.classList.remove('ok'), 1200); });
     });

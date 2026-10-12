@@ -24,6 +24,23 @@ const guarda = carregar('./scripts/verificar-privacidade.cjs') as {
   }>;
 };
 const usuarioFixture = 'usuario-do-empacotamento-fixture';
+test('pacote recusa binários, modelos e áudio de voz mesmo dentro de dist', () => {
+  for (const arquivo of [
+    'ffmpeg.exe',
+    'whisper.dll',
+    'ggml-small.bin',
+    'audio.wav',
+    'audio.mp3',
+    'audio.ogg',
+    'audio.flac',
+  ])
+    assert(
+      guarda
+        .motivosArquivo('extension/dist/' + arquivo)
+        .includes('binario de voz, modelo ou audio proibido no pacote'),
+    );
+  assert.deepEqual(guarda.motivosArquivo('extension/dist/sql-wasm.wasm'), []);
+});
 async function pacote(pasta: string, arquivos: Record<string, string | Buffer>) {
   const zip = new JSZip();
   zip.file('[Content_Types].xml', '<Types/>');
@@ -68,12 +85,12 @@ test('nick usa usuario do sistema, fallback Voce, preserva configuracao salva', 
   }
 });
 
-test('Gemini possui nome publico correto e preserva aliases', () => {
+test('Gemini possui nome publico correto sem aliases Antigravity', () => {
   const p = new ProvedorCli('gemini', async () => {
     assert.fail('terminal proibido');
   });
   assert.equal(p.agente.nick, 'Gemini');
-  assert.deepEqual(p.agente.apelidos, ['gemini', 'ag', 'antigravity']);
+  assert.deepEqual(p.agente.apelidos, []); // @ag e @antigravity agora pertencem ao provedor proprio.
 });
 
 for (const conteudo of [
@@ -138,7 +155,7 @@ test('guarda recusa arquivos pessoais/de desenvolvimento e somente aceita lista 
     'readme.md',
     'LICENSE',
     'LICENSE.txt',
-    'PRIVACIDADE.md',
+    'PRIVACY.md',
     'changelog.md',
   ])
     assert.deepEqual(guarda.motivosArquivo(`extension/${nome}`), []);

@@ -5,6 +5,40 @@ const id = z.string().min(1).max(200);
 const vazio = (tipo: string) => z.object({ tipo: z.literal(tipo) }).strict();
 const modo = z.enum(['leitura', 'escrita', 'leitura_escrita']);
 const schemas = [
+  ...['listarIntegracoes', 'listarSkills', 'listarRecursosNativos'].map(vazio),
+  ...['desconectarIntegracao', 'removerIntegracao'].map((tipo) =>
+    z.object({ tipo: z.literal(tipo), id }).strict(),
+  ),
+  z
+    .object({
+      tipo: z.literal('conectarIntegracao'),
+      id,
+      valores: z
+        .record(z.union([z.string().max(8192), z.boolean()]))
+        .refine((v) => Object.keys(v).length <= 20),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('alternarIntegracao'), id, ativa: z.boolean() }).strict(),
+  z
+    .object({
+      tipo: z.literal('adicionarIntegracaoPersonalizada'),
+      nome: z.string().trim().min(1).max(80),
+      transporte: z.enum(['http', 'sse', 'stdio']),
+      endpoint: z.string().min(1).max(2048),
+      autenticacao: z.enum(['oauth', 'oauth_cliente_proprio', 'token', 'nenhuma']),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('importarSkill'),
+      origem: z.enum(['pasta', 'zip', 'github']),
+      url: z.string().url().max(2048).optional(),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('alternarSkill'), nome: id, ativa: z.boolean() }).strict(),
+  ...['removerSkill', 'verSkill'].map((tipo) =>
+    z.object({ tipo: z.literal(tipo), nome: id }).strict(),
+  ),
   ...[
     'pronto',
     'parar',
@@ -14,8 +48,86 @@ const schemas = [
     'concluirAssistente',
     'vozIniciar',
     'vozParar',
+    'vozDescartar',
+    'vozCancelarInstalacao',
+    'pararLeitura',
     'exportarConversa',
+    'novoChat',
+    'listarMemorias',
   ].map(vazio),
+  z.object({ tipo: z.literal('listarChats'), busca: z.string().max(500).optional() }).strict(),
+  ...['abrirChat', 'excluirChat', 'exportarChat', 'excluirMemoria'].map((tipo) =>
+    z.object({ tipo: z.literal(tipo), id }).strict(),
+  ),
+  z
+    .object({ tipo: z.literal('renomearChat'), id, titulo: z.string().trim().min(1).max(120) })
+    .strict(),
+  z.object({ tipo: z.literal('fixarChat'), id, fixado: z.boolean() }).strict(),
+  z
+    .object({
+      tipo: z.literal('salvarMemoria'),
+      id: id.optional(),
+      escopo: z.enum(['global', 'projeto']),
+      texto: z.string().min(1).max(500),
+      ativa: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('vozInstalar'),
+      componentes: z
+        .array(z.enum(['ffmpeg', 'whisper', 'modelo', 'piper', 'voz_neural']))
+        .min(1)
+        .max(5),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('vozConfigurar'),
+      dispositivo: z.string().max(500).optional(),
+      modelo: z.enum(['base', 'small', 'medium']).optional(),
+      idioma: z.enum(['pt', 'en', 'es', 'auto']).optional(),
+      envioAutomatico: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      tipo: z.literal('leituraConfigurar'),
+      ativa: z.boolean().optional(),
+      voz: z.string().max(200).optional(),
+      velocidade: z.number().min(0.5).max(2).optional(),
+      motor: z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      variacao: z.number().min(0).max(1).optional(),
+    })
+    .strict(),
+  z.object({ tipo: z.literal('lerMensagem'), id }).strict(),
+  z
+    .object({
+      tipo: z.literal('leituraNuvemChave'),
+      provedor: z.enum(['openai', 'elevenlabs']),
+      chave: z.string().max(4096),
+    })
+    .strict(),
+  vazio('leituraNuvemRemover'),
+  z.object({ tipo: z.literal('cancelarPergunta'), id }).strict(),
+  z
+    .object({
+      tipo: z.literal('responderPergunta'),
+      id,
+      respostas: z
+        .array(
+          z
+            .object({
+              id,
+              opcoes: z.array(z.string().min(1).max(500)).max(6),
+              texto: z.string().max(2000).optional(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(4),
+    })
+    .strict(),
   z.object({ tipo: z.literal('enviar'), texto, anexos: z.array(id).max(20) }).strict(),
   z.object({ tipo: z.literal('carregarAnteriores'), antesDe: id }).strict(),
   z

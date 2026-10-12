@@ -72,13 +72,16 @@ export async function rodar(
       if (!opcoes.filtrarLinha || opcoes.filtrarLinha(l)) erro = (erro + l + '\n').slice(-4000);
     };
     const cancelar = () => matarArvore(proc.pid);
-    const timer = setTimeout(
-      () => {
-        timeout = true;
-        cancelar();
-      },
-      opcoes.timeoutMs ?? 20 * 60_000,
-    );
+    const timer =
+      opcoes.timeoutMs === 0
+        ? undefined
+        : setTimeout(
+            () => {
+              timeout = true;
+              cancelar();
+            },
+            opcoes.timeoutMs ?? 20 * 60_000,
+          );
     opcoes.sinal?.addEventListener('abort', cancelar, { once: true });
     proc.stdin.on('error', () => {});
     proc.stdin.end(opcoes.stdin ?? '');
@@ -119,7 +122,7 @@ export async function rodar(
       opcoes.trecho?.(texto);
     });
     const limpar = () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       opcoes.sinal?.removeEventListener('abort', cancelar);
     };
     proc.once('error', (e) => {

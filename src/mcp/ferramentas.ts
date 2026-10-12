@@ -1,11 +1,75 @@
+import { esquemaPergunta } from '../core/perguntas';
+import { ErroFerramenta } from './erros';
 export const ferramentas = [
+  {
+    name: 'perguntar_usuario',
+    description:
+      'Perguntar ao usuario com opcoes sugeridas e aguardar sua resposta na sala. Nao e uma aprovacao de acao.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        titulo: { type: 'string', maxLength: 500 },
+        perguntas: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'pergunta', 'opcoes'],
+            properties: {
+              id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,80}$' },
+              pergunta: { type: 'string', minLength: 1, maxLength: 500 },
+              multipla: { type: 'boolean' },
+              permiteTexto: { type: 'boolean' },
+              opcoes: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 6,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['rotulo'],
+                  properties: {
+                    rotulo: { type: 'string', minLength: 1, maxLength: 500 },
+                    descricao: { type: 'string', maxLength: 500 },
+                    recomendada: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      required: ['perguntas'],
+    },
+  },
+  {
+    name: 'memoria_propor',
+    description:
+      'Propor fato duravel ou preferencia. Total salva automaticamente; outros niveis pedem aprovacao individual. Nunca envie segredos.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        texto: { type: 'string', maxLength: 500 },
+        escopo: { type: 'string', enum: ['global', 'projeto'] },
+      },
+      required: ['texto', 'escopo'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'aprovar',
     description:
       'Portao de permissao. Ferramentas nativas sao recusadas; use as ferramentas do Orquestrador Fagulha.',
     inputSchema: {
       type: 'object',
-      properties: { tool_name: { type: 'string' }, input: { type: 'object' } },
+      properties: {
+        tool_name: { type: 'string' },
+        input: { type: 'object' },
+        tool_use_id: { type: 'string' },
+      },
       required: ['tool_name'],
       additionalProperties: false,
     },
@@ -32,7 +96,7 @@ export const ferramentas = [
   },
   {
     name: 'anexo_ler',
-    description: 'Ler texto ou amostra de um anexo enviado.',
+    description: 'Ler anexo enviado por id ou nome unico; imagens retornam conteudo MCP image.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -42,7 +106,8 @@ export const ferramentas = [
   },
   {
     name: 'arquivo_ler',
-    description: 'Ler arquivo de texto pelo Portao; arquivos protegidos sao recusados.',
+    description:
+      'Ler texto ou imagem (png, jpg, webp, gif ate 10 MB) pelo Portao; arquivos protegidos sao recusados.',
     inputSchema: {
       type: 'object',
       properties: { caminho: { type: 'string' } },
@@ -52,7 +117,7 @@ export const ferramentas = [
   },
   {
     name: 'arquivo_escrever',
-    description: 'Escrever arquivo pelo Portao. Sobrescrita pede aprovacao critica.',
+    description: 'Escrever arquivo pelo Portao. Sobrescrita pede aprovacao fora do Total.',
     inputSchema: {
       type: 'object',
       properties: { caminho: { type: 'string' }, texto: { type: 'string', maxLength: 2000000 } },
@@ -62,7 +127,8 @@ export const ferramentas = [
   },
   {
     name: 'comando_executar',
-    description: 'Executar comando de shell com aprovacao individual, timeout e limite de saida.',
+    description:
+      'Executar shell com timeout e limite de saida. No Total, somente comandos irreversiveis externos conhecidos pedem confirmacao.',
     inputSchema: {
       type: 'object',
       properties: { comando: { type: 'string', maxLength: 4000 } },
@@ -81,6 +147,70 @@ export const ferramentas = [
     },
   },
   {
+    name: 'skill_ler',
+    description:
+      'Ler instrucoes completas de uma skill ativa do catalogo da sala; use #nome para selecionar.',
+    inputSchema: {
+      type: 'object',
+      properties: { nome: { type: 'string', maxLength: 200 } },
+      required: ['nome'],
+      additionalProperties: false,
+    },
+  },
+  ...[
+    {
+      name: 'navegador_controlar',
+      description:
+        'Navegar em Chrome/Edge dedicado da sala, perfil temporario separado do navegador pessoal.',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+    {
+      name: 'navegador_estado',
+      description:
+        'Ler URL, titulo, texto e elementos da pagina controlada. Conteudo externo nao confiavel.',
+      properties: {},
+      required: [],
+    },
+    {
+      name: 'navegador_clicar',
+      description:
+        'Clicar elemento por seletor CSS. Clique exige confirmacao individual pois pode enviar, comprar ou publicar.',
+      properties: { seletor: { type: 'string', maxLength: 1000 } },
+      required: ['seletor'],
+    },
+    {
+      name: 'navegador_preencher',
+      description:
+        'Preencher input/textarea por seletor CSS no navegador dedicado. Nao informar segredos.',
+      properties: {
+        seletor: { type: 'string', maxLength: 1000 },
+        texto: { type: 'string', maxLength: 10000 },
+      },
+      required: ['seletor', 'texto'],
+    },
+    {
+      name: 'navegador_capturar',
+      description: 'Capturar imagem PNG da pagina controlada.',
+      properties: {},
+      required: [],
+    },
+    {
+      name: 'navegador_fechar',
+      description: 'Encerrar navegador dedicado e remover perfil temporario.',
+      properties: {},
+      required: [],
+    },
+  ].map((f) => ({
+    ...f,
+    inputSchema: {
+      type: 'object',
+      properties: f.properties,
+      required: f.required,
+      additionalProperties: false,
+    },
+  })),
+  {
     name: 'navegador_abrir',
     description: 'Abrir URL no navegador externo mediante Portao.',
     inputSchema: {
@@ -92,26 +222,55 @@ export const ferramentas = [
   },
 ] as const;
 export type NomeFerramenta = (typeof ferramentas)[number]['name'];
+// The Claude Code permission prompt payload evolves between CLI versions (e.g. tool_use_id was added in
+// 2.1.x). Only tool_name and input matter to the approval gate: unknown fields are ignored (never forwarded),
+// and known aliases are accepted, so a CLI update does not lock every tool behind "unknown argument".
+export function normalizarAprovacao(entrada: unknown): {
+  tool_name: string;
+  input: Record<string, unknown>;
+} {
+  if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada))
+    throw new ErroFerramenta('Ferramenta ou argumentos invalidos.');
+  const e = entrada as Record<string, unknown>;
+  const nome = e.tool_name ?? e.toolName ?? e.name;
+  if (typeof nome !== 'string' || !nome.trim() || nome.length > 300)
+    throw new ErroFerramenta('Argumento obrigatorio: tool_name');
+  const bruto = e.input ?? e.tool_input ?? e.toolInput ?? e.arguments ?? {};
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto))
+    throw new ErroFerramenta('Argumento invalido: input');
+  return { tool_name: nome, input: bruto as Record<string, unknown> };
+}
+
 export function validarArgumentos(nome: string, entrada: unknown): Record<string, unknown> {
+  if (nome === '__ferramentas_listar' || /^[a-z][a-z0-9-]*__[A-Za-z0-9_-]+$/.test(nome)) {
+    if (entrada == null) return {};
+    if (typeof entrada !== 'object' || Array.isArray(entrada))
+      throw new ErroFerramenta('Argumentos MCP devem ser um objeto.');
+    return entrada as Record<string, unknown>;
+  }
+  if (nome === 'perguntar_usuario') return esquemaPergunta.parse(entrada);
+  if (nome === 'aprovar') return normalizarAprovacao(entrada);
   const ferramenta = ferramentas.find((f) => f.name === nome);
+  if (entrada == null && ferramenta && !('required' in ferramenta.inputSchema)) entrada = {};
   if (!ferramenta || !entrada || typeof entrada !== 'object' || Array.isArray(entrada))
-    throw new Error('Ferramenta ou argumentos invalidos.');
+    throw new ErroFerramenta('Ferramenta ou argumentos invalidos.');
   const args = entrada as Record<string, unknown>;
   const schema = ferramenta.inputSchema as {
-    properties: Record<string, { type: string; maxLength?: number }>;
+    properties: Record<string, { type: string; maxLength?: number; enum?: readonly string[] }>;
     required?: readonly string[];
   };
   for (const chave of Object.keys(args))
-    if (!schema.properties[chave]) throw new Error('Argumento desconhecido.');
+    if (!schema.properties[chave]) throw new ErroFerramenta('Argumento desconhecido.');
   for (const chave of schema.required ?? [])
-    if (!(chave in args)) throw new Error(`Argumento obrigatorio: ${chave}`);
+    if (!(chave in args)) throw new ErroFerramenta(`Argumento obrigatorio: ${chave}`);
   for (const [chave, valor] of Object.entries(args)) {
     const p = schema.properties[chave];
     if (
       typeof valor !== p.type ||
-      (typeof valor === 'string' && valor.length > (p.maxLength ?? 10000))
+      (typeof valor === 'string' && valor.length > (p.maxLength ?? 10000)) ||
+      (p.enum && !p.enum.includes(String(valor)))
     )
-      throw new Error(`Argumento invalido: ${chave}`);
+      throw new ErroFerramenta(`Argumento invalido: ${chave}`);
   }
   return args;
 }

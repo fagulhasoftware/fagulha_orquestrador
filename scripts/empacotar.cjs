@@ -4,13 +4,7 @@ const { name, version } = require('../package.json');
 
 const processo = spawn(
   process.execPath,
-  [
-    require.resolve('@vscode/vsce/vsce'),
-    'package',
-    '--allow-missing-repository',
-    '--out',
-    `${name}-${version}.vsix`,
-  ],
+  [require.resolve('@vscode/vsce/vsce'), 'package', '--out', `${name}-${version}.vsix`],
   { cwd: resolve(__dirname, '..'), stdio: 'inherit', windowsHide: true },
 );
 processo.once('error', (erro) => {

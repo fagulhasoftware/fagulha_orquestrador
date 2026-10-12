@@ -1,45 +1,46 @@
-# Código de conduta
+# Code of conduct
 
-Este código é baseado no [Contributor Covenant 2.1](https://www.contributor-covenant.org/pt-br/version/2/1/code_of_conduct/).
+[Português (Brasil)](CODE_OF_CONDUCT.pt-BR.md)
 
-## Nosso compromisso
+This code is based on the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
 
-Nós, como participantes, colaboradores e mantenedores, nos comprometemos a tornar a participação na
-comunidade do Orquestrador Fagulha uma experiência livre de assédio para todas as pessoas,
-independentemente de idade, aparência, deficiência, etnia, identidade ou expressão de gênero, nível de
-experiência, escolaridade, nacionalidade, religião, orientação sexual ou condição socioeconômica.
+## Our pledge
 
-## Comportamentos esperados
+We, as participants, contributors and maintainers, pledge to make participation in the Orquestrador Fagulha
+community a harassment-free experience for everyone, regardless of age, appearance, disability, ethnicity, gender
+identity or expression, level of experience, education, nationality, religion, sexual orientation or
+socioeconomic status.
 
-- Demonstrar empatia e gentileza com outras pessoas.
-- Respeitar opiniões, pontos de vista e experiências diferentes.
-- Dar e receber críticas construtivas de forma respeitosa.
-- Assumir responsabilidade pelos próprios erros e aprender com eles.
-- Priorizar o que é melhor para a comunidade como um todo.
+## Expected behavior
 
-## Comportamentos inaceitáveis
+- Show empathy and kindness toward other people.
+- Respect differing opinions, viewpoints and experiences.
+- Give and gracefully accept constructive feedback.
+- Take responsibility for our mistakes and learn from them.
+- Focus on what is best for the community as a whole.
 
-- Linguagem ou imagens de cunho sexual e investidas de qualquer natureza.
-- Comentários ofensivos, insultos, ataques pessoais ou políticos.
-- Assédio público ou privado.
-- Publicar informações privadas de outras pessoas, como endereço, e-mail ou credenciais, sem permissão.
-- Qualquer conduta que seria considerada inadequada em um ambiente profissional.
+## Unacceptable behavior
 
-## Aplicação
+- Sexualized language or imagery and advances of any kind.
+- Offensive comments, insults, personal or political attacks.
+- Public or private harassment.
+- Publishing other people's private information, such as addresses, e-mails or credentials, without permission.
+- Any conduct that would reasonably be considered inappropriate in a professional setting.
 
-Os mantenedores são responsáveis por esclarecer e aplicar este código e podem remover, editar ou rejeitar
-comentários, commits, código, *issues* e outras contribuições que não estejam de acordo com ele.
+## Enforcement
 
-Casos de comportamento inaceitável podem ser relatados de forma confidencial pelo formulário
-https://fagulha.net/contato, com o assunto "Conduta — Orquestrador Fagulha". Todas as denúncias serão
-analisadas com sigilo.
+Maintainers are responsible for clarifying and enforcing this code and may remove, edit or reject comments,
+commits, code, issues and other contributions that do not follow it.
 
-## Consequências
+Unacceptable behavior can be reported confidentially through https://fagulha.net/contato, with the subject
+"Conduct — Orquestrador Fagulha". All reports will be handled confidentially.
 
-Conforme a gravidade, os mantenedores podem aplicar: correção com orientação privada, advertência,
-suspensão temporária ou banimento permanente da comunidade.
+## Consequences
 
-## Abrangência
+Depending on severity, maintainers may apply: private correction, a warning, a temporary ban or a permanent ban
+from the community.
 
-Este código se aplica a todos os espaços da comunidade (repositório, *issues*, *pull requests* e
-discussões) e a situações em que uma pessoa representa oficialmente o projeto.
+## Scope
+
+This code applies to all community spaces (repository, issues, pull requests and discussions) and to situations
+in which a person officially represents the project.

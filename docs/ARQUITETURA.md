@@ -28,7 +28,7 @@ Principios inegociaveis:
 1. **Tudo local.** Conversa, acoes, aprovacoes e anexos ficam em SQLite em `~/.orquestra/dados/`.
    Nada e publicado, enviado ou sincronizado sem pedido explicito do usuario.
 2. **Dono no controle.** Toda acao de agente passa pelo Portao de Permissoes (secao 5).
-   Mesmo no nivel Total, o agente informa e pede aprovacao para acoes criticas.
+   No Total, comandos irreversiveis externos conhecidos pedem confirmacao; MCPs diretos nao passam pelo Portao.
 3. **Segredos so no SecretStorage do VS Code.** Nunca em SQLite, log, prompt ou arquivo.
 4. **Extensivel como o Kilo.** Novos agentes entram por manifesto ou por outra extensao (secao 4).
 5. **Limites de processamento.** Arquivos pesados (planilhas e derivados) nunca sao lidos integralmente.
@@ -66,6 +66,39 @@ media/                    icones e CSS
   resultados de ferramentas MCP entram no historico e chegam aos demais agentes.
 - Sessoes dos CLIs sao retomadas por sala e agente; mudar o modo de permissao abre sessao nova.
 
+### 3.1 Chats e memoria persistente (versao 0.2.1)
+
+- **Chat** e a unidade de conversa persistente (tabela `chats`): id, titulo, projeto (pasta ou nulo),
+  criado/atualizado, fixado. Mensagens, acoes, anexos, aprovacoes, contextos e sessoes dos CLIs pertencem
+  ao chat. A sala continua sendo a janela/pasta; ela aponta para o chat ativo.
+- **Abertura:** a janela reabre o ultimo chat usado na sua pasta (`ultimo_chat` por sala); sem pasta, o
+  ultimo chat sem projeto; sem nenhum, cria um chat novo. Fechar e reabrir o VS Code restaura o chat e
+  as sessoes dos agentes.
+- **Novo chat:** cria um chat vazio na pasta da janela; as sessoes dos CLIs sao chaveadas por chat, entao
+  os agentes comecam do zero sem apagar o chat anterior.
+- **Menu Chats:** lista todos os chats (fixados, deste projeto, outros projetos, sem projeto); busca
+  local em titulos e no texto das mensagens (falas e do usuario, nunca segredos mascarados); renomear,
+  fixar, exportar em Markdown e excluir (apaga mensagens, acoes, anexos e sessoes do chat). Abrir um chat
+  de outro projeto mostra o historico; os agentes trabalham na pasta da janela atual.
+- **Titulo automatico:** primeira mensagem do usuario, sem mencoes, ate 60 caracteres; editavel.
+- **Memoria persistente** (tabela `memorias`): fatos curtos (ate 500 caracteres), escopo `global` ou
+  `projeto`, ativos ou desativados. As memorias ativas do escopo (global + projeto da janela) entram no
+  contexto de cada agente numa secao "Memoria do usuario", com teto de 4 000 caracteres (mais recentes
+  primeiro). Origem: usuario (menu ou `/lembrar`, `/lembrar-global`) ou agente pela ferramenta MCP
+  `memoria_propor`, que pede aprovacao individual fora do Total e salva automaticamente no Total.
+  Texto que pareca segredo (chaves, tokens, senhas) e recusado.
+- **Migracao:** cada sala existente vira um chat (titulo gerado da primeira mensagem ou "Conversa de
+  <data>"), preservando mensagens, acoes, anexos e sessoes.
+
+### 3.2 Estagio do agente e perguntas guiadas (versao 0.3.0)
+
+- `Agente.fase` e o evento `fase` mostram a etapa atual (pensando, lendo, pesquisando_web, escrevendo,
+  executando, aguardando_aprovacao, aguardando_resposta, respondendo) e o resultado final (concluido com
+  duracao, interrompido, erro), derivados dos eventos de cada CLI/API. Janela sem foco recebe notificacao.
+- `perguntar_usuario` (MCP): 1 a 4 perguntas com 2 a 6 opcoes (recomendada, multipla, texto livre). A
+  chamada fica bloqueada ate a resposta ou cancelamento (timeout de 30 min) e as respostas voltam ao agente.
+- Configuracao global: assistente, nivel, agentes, voz e limites sao um registro unico para todas as janelas.
+
 ## 4. Provedores (agentes)
 
 Interface (detalhe em `src/providers/tipos.ts`, definido pelo Codex a partir de `protocolo.ts`):
@@ -99,7 +132,7 @@ Extensibilidade:
 |---|---|
 | `manual` | Toda acao de agente (leitura, escrita, comando, rede) pede aprovacao. CLIs rodam no modo nativo somente leitura; escrita e comando so pelas ferramentas MCP do Orquestrador Fagulha. |
 | `parcial` | Leitura e escrita **dentro do workspace** seguem o modo do agente sem perguntar. Pedem aprovacao: qualquer acesso **fora do workspace** (resto da maquina), comandos de shell, navegador externo e sistemas externos. |
-| `total` | Executa sem bloquear e **sempre informa** na sala (cartao de acao). Continuam pedindo aprovacao: acoes destrutivas, publicacao/escrita externa (push, deploy, envio), credenciais. Ativar exige ler o aviso de riscos e digitar a confirmacao. |
+| `total` | Executa sem bloquear e **sempre informa** na sala (cartao de acao). Comandos irreversiveis externos conhecidos pedem confirmacao individual; outras categorias seguem automaticamente. MCPs herdados diretos nao passam pelo Portao. Ativar exige ler o aviso de riscos e digitar a confirmacao. |
 
 ### 5.2 Modo por agente e modelo hibrido (decisao do produto, 2026-10-04)
 
@@ -170,17 +203,62 @@ configuracoes (`fagulha.anexos.*`) com estes valores como padrao e maximos rigid
 Importar como "contexto" (chip removivel no chat): conversas do Claude Code
 (`~/.claude/projects/**.jsonl`), do Codex (`~/.codex/sessions/**.jsonl`), da sala de terminal
 (`~/.orquestra/sala/logs/**`) e de outras salas da extensao. Escolha por QuickPick com busca; o
-conteudo e resumido para um orcamento de tamanho (padrao 12 000 caracteres, ultimas mensagens).
+conteudo e extraido e truncado pelo final para um orcamento de tamanho (padrao e teto de
+12 000 caracteres). Nao ha resumo semantico nem extracao automatica de decisoes. Uma decisao
+humana antiga e seu motivo podem ficar fora do trecho importado; o corte tambem pode comecar
+no meio de uma mensagem. Para arquivos grandes, somente os ultimos 8 MB sao lidos.
+
+Decisoes duraveis devem ser registradas explicitamente como memoria do projeto (opcao rejeitada,
+motivo e alternativa escolhida) ou em um ADR versionado, solicitado/anexado ao agente no handoff.
+A memoria e separada da importacao: itens ativos do escopo entram no contexto sob teto de 4 000
+caracteres, mais recentes primeiro. Um item continua salvo no banco mesmo quando nao cabe nesse
+teto; isso nao garante sua presenca em todo prompt. O corpo final tambem tem limite de 160 000
+caracteres. Veja o [exemplo de handoff e os limites atuais](CONTEXT_HANDOFF.md).
 
 ## 10. Navegador, voz e sistemas externos
 
 - Fase 1: `navegador_ler` (fetch HTTP(S), extracao de texto, limite 1 MB, aprovacao conforme nivel)
   e `navegador_abrir` (navegador externo do sistema).
-- Fase 1b, voz: gravacao com ffmpeg (DirectShow) e transcricao com whisper.cpp e modelo local.
-  Nenhum audio sai da maquina. O assistente detecta ffmpeg/whisper e orienta a instalacao, que so
-  acontece com confirmacao do usuario. O webview nao tem acesso ao microfone; a gravacao e no host.
+- Voz (versao 0.2.0): ver secao 10.1.
 - Fase 2: navegador controlado via Chrome DevTools Protocol (Chrome do usuario aberto com porta de
   depuracao), repositorios remotos, VMs (ssh) e sites com login, sempre na categoria `externo`.
+
+### 10.1 Chat por voz: falar e ouvir (versao 0.2.0)
+
+O webview nao tem acesso ao microfone; gravacao, transcricao e leitura acontecem no extension host.
+
+**Falar**
+
+| Etapa | Implementacao |
+|---|---|
+| Gravacao | ffmpeg, 16 kHz mono WAV em arquivo temporario. Windows: `-f dshow -i audio="<dispositivo>"` (lista com `-list_devices true`); macOS: `-f avfoundation -i ":<indice>"`; Linux: `-f pulse -i default` (alsa como alternativa). Limite de 120 s por gravacao; o host emite `segundosGravados` a cada segundo. |
+| Transcricao | whisper.cpp (`whisper-cli`) com o modelo escolhido (padrao `small`), idioma configuravel (padrao `pt`), saida em texto. Timeout proporcional a duracao. |
+| Resultado | `envioAutomatico` ligado: a transcricao e enviada como mensagem do usuario (com mencoes, se ditas, ex.: "arroba claude"). Desligado: vai para a caixa de texto. |
+| Limpeza | O WAV e os arquivos auxiliares sao apagados apos a transcricao, no descarte e na desativacao da extensao. Audio nunca vai para o SQLite. |
+
+**Instalacao dos componentes (assistente com consentimento)**
+
+- Pasta propria: `~/.orquestra/voz/{bin,modelos}`. Sem administrador, sem alterar o PATH.
+- Antes de baixar, a interface mostra cada componente, a origem e o tamanho; o clique em
+  "Baixar e instalar" e o consentimento. O host so baixa os componentes recebidos em `vozInstalar`.
+- Windows: ffmpeg (build oficial em GitHub Releases) e whisper.cpp (binario oficial do projeto em GitHub
+  Releases), versoes fixadas. macOS e Linux: ffmpeg e whisper.cpp ficam como `manual`, com o comando
+  sugerido (`brew install ffmpeg whisper-cpp`; `sudo apt install ffmpeg` e instrucoes do whisper.cpp).
+  Componentes ja presentes no PATH sao reaproveitados.
+- Modelos: arquivos `ggml-<modelo>.bin` do repositorio oficial do whisper.cpp no Hugging Face.
+- Todo download: somente HTTPS para hosts permitidos (github.com, objects.githubusercontent.com,
+  huggingface.co e seus CDNs), SHA-256 fixado no codigo e conferido antes de usar, download em arquivo
+  `.parcial` com retomada/cancelamento, extracao limitada ao destino (sem caminhos `..`).
+
+**Ouvir**
+
+- Voz nativa do sistema: Windows via SAPI (`System.Speech` em PowerShell, sem janela), macOS via `say`,
+  Linux via `spd-say` ou `espeak-ng`. Sem download.
+- Le somente falas de agentes: remove markdown, troca blocos de codigo por "trecho de codigo omitido",
+  limita a ~1500 caracteres por fala. Leitura automatica opcional e botao "ouvir" por mensagem.
+- Iniciar uma gravacao interrompe a leitura em andamento (evita o microfone captar a propria voz).
+- O texto e passado ao processo de fala por stdin ou arquivo temporario, nunca como argumento de linha
+  de comando (evita injecao e limite de tamanho).
 
 ## 11. Instalacao e configuracao
 
@@ -212,3 +290,7 @@ privacidade e teste manual no VS Code (F5).
   outros chats, navegador_ler/abrir, interface completa, assistente, pacote .vsix.
 - **F1b**: voz local.
 - **F2**: navegador via CDP, sistemas externos (repositorios, VMs, sites), marketplace de manifestos.
+
+### Historico: Codex Total em 0.3.0
+
+A linha Codex da tabela anterior descreve Manual/Parcial. No Total, usa `danger-full-access` para escrita, `read-only` em modo leitura, `web_search="live"`, shell nativo desligado e MCPs herdados preservados. `comando_executar` classifica operacoes conhecidas em `irreversivel_externo`; scripts e destinos remotos implicitos nao sao interpretados. Edicoes nativas e MCPs herdados ficam fora do Portao. Memorias propostas sao automaticas no Total. Os outros provedores mantem os argumentos de CLI anteriores; a matriz do Portao e compartilhada.

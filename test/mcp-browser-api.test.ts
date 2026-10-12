@@ -68,7 +68,9 @@ test('MCP stdio real lista e executa ferramentas pela ponte', async () => {
     await cliente.connect(transporte);
     assert.equal(cliente.getServerVersion()?.name, 'fagulha_orquestrador');
     const lista = await cliente.listTools();
-    assert.equal(lista.tools.length, 10);
+    assert.equal(lista.tools.length, 19);
+    assert(lista.tools.some((t) => t.name === 'navegador_controlar'));
+    assert(lista.tools.some((t) => t.name === 'navegador_capturar'));
     const resposta = await cliente.callTool({ name: 'sala_ler', arguments: {} });
     assert.equal(resposta.isError, undefined);
     assert.deepEqual(JSON.parse((resposta.content as any)[0].text), { ok: true });
@@ -109,6 +111,43 @@ test('ferramentas gravam apos portao; sobrescrita critica e segredos bloqueados'
     );
     off();
     assert.equal(await readFile(caminho, 'utf8'), 'primeiro');
+    sala.config.nivel = 'total';
+    await executor.executar('codex', 'arquivo_escrever', { caminho, texto: 'total' }, sinal);
+    assert.equal(await readFile(caminho, 'utf8'), 'total');
+    const resultado = await executor.executar(
+      'codex',
+      'comando_executar',
+      { comando: 'echo TOTAL_OK' },
+      sinal,
+    );
+    assert.match(String(resultado), /TOTAL_OK/);
+    let pedidos = 0;
+    const offTotal = sala.observar((e) => {
+      if (e.tipo === 'aprovacao') {
+        pedidos++;
+        assert.equal(e.pedido.categoria, 'irreversivel_externo');
+        queueMicrotask(() => sala.portao.responder(e.pedido.id, 'negar'));
+      }
+    });
+    await assert.rejects(
+      executor.executar('codex', 'comando_executar', { comando: 'git push --force' }, sinal),
+    );
+    offTotal();
+    assert.equal(pedidos, 1);
+    let cliques = 0;
+    const offClique = sala.observar((e) => {
+      if (e.tipo === 'aprovacao') {
+        cliques++;
+        assert.equal(e.pedido.categoria, 'irreversivel_externo');
+        queueMicrotask(() => sala.portao.responder(e.pedido.id, 'negar'));
+      }
+    });
+    await assert.rejects(
+      executor.executar('codex', 'navegador_clicar', { seletor: '#publicar' }, sinal),
+    );
+    assert.equal(cliques, 1);
+    offClique();
+    await executor.fecharNavegadores();
     await assert.rejects(
       executor.executar('codex', 'arquivo_ler', { caminho: join(tmp.pasta, '.env') }, sinal),
     );

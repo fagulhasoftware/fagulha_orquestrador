@@ -274,7 +274,6 @@ test('links: somente HTTPS, domínios exatos/subdomínios e URL vigente do fluxo
 
 for (const [id, metodo, variante, esperado] of [
   ['claude', 'navegador', 'claudeai', ['auth', 'login', '--claudeai']],
-  ['claude', 'navegador', 'console', ['auth', 'login', '--console']],
   ['codex', 'navegador', undefined, ['login']],
   ['codex', 'dispositivo', undefined, ['login', '--device-auth']],
 ] as const) {
@@ -333,7 +332,7 @@ test('login não confirmado/variante inválida vira erro; URL maliciosa não é 
     return '';
   };
   f.p.estadoLogin = async () => 'desconectado';
-  await f.gestor.iniciar('claude', 'navegador', 'console');
+  await f.gestor.iniciar('claude', 'navegador', 'claudeai');
   assert.equal(f.links.length, 0);
   assert.equal(f.progressos().at(-1)!.etapa, 'erro');
   await f.gestor.iniciar('claude', 'navegador', '--evil');
@@ -398,29 +397,11 @@ test('timeout de login em segundo plano interrompe processo e informa erro', asy
   assert.match(f.progressos().at(-1)!.mensagem!, /5 minutos/);
 });
 
-test('Codex com chave: valida antes, passa somente por stdin e confirma login antes de gravar', async () => {
-  const ordem: string[] = [];
-  const f = fixture('codex', 'openai', {
-    validar: async () => {
-      ordem.push('validar');
-    },
-  });
-  f.p.autenticacao!.comando = async (args, _sinal, _saida, stdin) => {
-    ordem.push('comando');
-    assert.deepEqual(args, ['login', '--with-api-key']);
-    assert.equal(stdin, `${chaves.openai}\n`);
-    assert(!args.join(' ').includes(chaves.openai));
-    return '';
-  };
-  f.p.estadoLogin = async () => {
-    ordem.push('status');
-    assert.equal(f.valores.size, 0);
-    return 'conectado';
-  };
+test('Codex conta nao aceita chave; API permanece em participante separado', async () => {
+  const f = fixture('codex', 'openai');
   await f.gestor.chave('codex', chaves.openai);
-  assert.deepEqual(ordem, ['validar', 'comando', 'status']);
-  assert.equal(f.valores.get('fagulha.api.codex'), chaves.openai);
-  assert(!JSON.stringify(f.eventos).includes(chaves.openai));
+  assert.equal(f.valores.get('fagulha.api.codex'), undefined);
+  assert(f.progressos().some(p => p.etapa === 'erro'));
 });
 
 for (const id of ['claude', 'codex', 'gemini-api'])
@@ -547,8 +528,8 @@ test('CLI fixture sem rede: stdout/stderr, confirmação --json, conta mascarada
       `const fs=require('fs');const a=process.argv.slice(2);
       fs.appendFileSync(${JSON.stringify(registro)},JSON.stringify(a)+'\\n');
       if(a[0]==='--version')console.log('fixture 1');
-      else if(a[1]==='login')process.stderr.write('https://claude.ai/oauth/authorize?state=fixture\\n');
-      else if(a[1]==='status')console.log(JSON.stringify({loggedIn:true,email:'nathan@example.com',subscriptionType:'max'}));`,
+      else if(a.includes('login'))process.stderr.write('https://claude.ai/oauth/authorize?state=fixture\\n');
+      else if(a.includes('status'))console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'nathan@example.com',subscriptionType:'max'}));`,
     );
     const f = fixture('claude');
     const p = new ProvedorCli(
@@ -576,7 +557,7 @@ test('CLI fixture sem rede: stdout/stderr, confirmação --json, conta mascarada
       .split('\n')
       .map((l) => JSON.parse(l));
     assert(
-      comandos.some((a) => JSON.stringify(a) === JSON.stringify(['auth', 'status', '--json'])),
+      comandos.some((a) => JSON.stringify(a.slice(a.indexOf('auth'),a.indexOf('auth')+3)) === JSON.stringify(['auth', 'status', '--json'])),
     );
     assert.equal(f.links.length, 1);
     await assert.rejects(p.login(), /painel/);
@@ -640,7 +621,7 @@ test('Windows: encerramento solicita taskkill /T /F para a árvore, janela ocult
 });
 
 test('Ollama verifica /api/tags; opções dos agentes e manifesto compatível seguem contrato v2', async () => {
-  assert.equal(VERSAO_PROTOCOLO, 2);
+  assert.equal(VERSAO_PROTOCOLO, 6);
   const memoria = segredosMemoria();
   const servidor = createServer((req, res) => {
     assert.equal(req.url, '/api/tags');

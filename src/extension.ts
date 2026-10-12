@@ -2,22 +2,33 @@ import * as vscode from 'vscode';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { exportarMarkdown } from './core/horario';
 import { mkdir, readFile, writeFile, rm, stat, open } from 'node:fs/promises';
 import { Armazenamento } from './storage/sqlite';
 export { Armazenamento } from './storage/sqlite';
 import { Sala, chaveSala } from './core/sala';
-import { configuracaoPadrao, limitar } from './core/configuracao';
 import { validarMensagem } from './core/protocolo';
 import { montarHtml } from './core/webview';
 import { mascarar, caminhoReal, protegerSegredo } from './core/seguranca';
-import { ProvedorCli } from './providers/cli';
+import { ProvedorCli, localizar } from './providers/cli';
+import { ProvedorMistral } from './providers/mistral';
+import { appsCodex } from './providers/recursos';
 import { ProvedorApi, type ApiId, type OpcoesApi } from './providers/api';
 import { GestorLogin } from './providers/login';
 import type { Provedor } from './providers/tipos';
 import { carregarManifestos, lerManifesto, criarProvedorManifesto } from './providers/manifestos';
 import { PonteHttp } from './mcp/ponte';
 import { ExecutorFerramentas } from './mcp/executor';
+import { Integracoes } from './integrations/gestor';
+import { mensagemIntegracao } from './integrations/mensagens';
+import { conectarMcp } from './integrations/cliente';
+import { OAuthMcp } from './integrations/oauth';
+import { Skills } from './skills/gestor';
+import { ferramentas } from './mcp/ferramentas';
+import type { RegistroIntegracao } from './integrations/tipos';
 import { Anexador } from './attachments/pipeline';
+import { imagensNativas } from './attachments/nativas';
+import { lerImagem } from './attachments/imagem';
 import {
   descobrirContextos,
   importarContexto,
@@ -47,7 +58,7 @@ export async function activate(
     join(pasta, 'orquestra.sqlite'),
     join(context.extensionPath, 'dist', 'sql-wasm.wasm'),
   );
-  await storage.iniciar();
+  await storage.iniciar({ sala: id, projeto, titulo: projeto ? basename(projeto) : 'Sala avulsa' });
   const sala = new Sala(id, projeto, projeto ? basename(projeto) : 'Sala avulsa', storage);
   const cfg = () => vscode.workspace.getConfiguration('fagulha');
   const opcoes = (id: string): OpcoesProvedor => {
@@ -85,7 +96,7 @@ export async function activate(
     }
     sala.registrar(p);
   };
-  for (const id of ['claude', 'codex', 'gemini'] as const)
+  for (const id of ['claude', 'codex', 'gemini', 'antigravity'] as const)
     registrar(
       new ProvedorCli(
         id,
@@ -101,8 +112,15 @@ export async function activate(
     'openai-compativel',
     'anthropic',
     'gemini-api',
+    'mistral-api',
   ] as ApiId[])
     registrar(new ProvedorApi(id, context.secrets, () => opcoes(id), pedirChave));
+  for (const id of ['mistral-vibe', 'mistral-enterprise'] as const)
+    registrar(new ProvedorMistral(id, join(pasta, 'contas', id), context.secrets, () => opcoes(id), async (titulo, sinal) => {
+      try {
+        return await sala.portao.executar({ agente: id, modo: 'leitura_escrita', categoria: 'irreversivel_externo', resumo: titulo, detalhe: 'Permissao nativa ACP solicitada pelo Mistral; autorizacao vale apenas para esta chamada.' }, async () => true, sinal);
+      } catch { return false; }
+    }));
   // Manifests sao codigo executavel: carregar somente apos confianca no workspace.
   if (vscode.workspace.isTrusted)
     for (const m of await carregarManifestos(join(homedir(), '.orquestra', 'provedores')))
@@ -110,29 +128,107 @@ export async function activate(
         criarProvedorManifesto(m, context.secrets, terminal, pedirChave, () => opcoes(m.id)),
       );
   await sala.iniciar();
-  if (sala.primeiraExecucao) {
-    const defaults = configuracaoPadrao();
-    const limites = Object.fromEntries(
-      Object.keys(defaults.limites).map((k) => [
-        k,
-        cfg().get(`anexos.${k}`, defaults.limites[k as keyof typeof defaults.limites]),
-      ]),
-    ) as Configuracao['limites'];
-    await sala.configurar({
-      nivel: cfg().get('nivel') === 'parcial' ? 'parcial' : 'manual',
-      passagensAutomaticas: cfg().get('passagensAutomaticas', 6),
-      timeoutMinutos: cfg().get('timeoutMinutos', 20),
-      limites: limitar(limites),
-    });
-  }
-  const voz = new VozLocal();
-  sala.voz = await voz.detectar();
+  const voz = new VozLocal({
+    segredos: context.secrets,
+    carregar: async () =>
+      (await storage.obter<import('./storage/global').ConfigGlobal>('globais', '', 'configuracao'))
+        ?.voz,
+    salvar: async (parcial) => (await storage.atualizarGlobal({ voz: parcial })).voz!,
+    emitir: (evento) => {
+      if (evento.tipo === 'estadoVoz') sala.voz = evento.voz;
+      sala.emitir(evento);
+    },
+    agentes: () => sala.agentes,
+    enviar: (texto) => sala.enviar(texto, []),
+    auditar: async (resumo) => {
+      await storage.gravar('auditoria', sala.id, randomUUID(), { resumo });
+    },
+  });
+  sala.voz = await voz.inicializar();
   const abrir = async (url: string) => {
     if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
       throw new Error('Nao foi possivel abrir navegador.');
   };
-  const executor = new ExecutorFerramentas(sala, raizes, abrir);
-  const ponte = new PonteHttp((id, nome, args, sinal) => executor.executar(id, nome, args, sinal));
+  const views = new Set<vscode.Webview>();
+  const skills = new Skills(
+    join(pasta, 'skills'),
+    [
+      join(homedir(), '.agents', 'skills'),
+      join(homedir(), '.codex', 'skills'),
+      join(homedir(), '.claude', 'skills'),
+      join(homedir(), '.gemini', 'skills'),
+      join(homedir(), '.codex', 'plugins', 'cache'),
+      join(homedir(), '.claude', 'plugins', 'cache'),
+      join(homedir(), '.gemini', 'config', 'plugins'),
+      ...(projeto ? [join(projeto, '.agents', 'skills'), join(projeto, '.claude', 'skills')] : []),
+    ],
+    async () => (await storage.obter<string[]>('globais', '', 'skills-desativadas')) ?? [],
+    async (nomes) => {
+      await storage.gravar('globais', '', 'skills-desativadas', nomes);
+    },
+  );
+  if (vscode.workspace.isTrusted) await skills.listar();
+  const listarNativos = async (webview: vscode.Webview) => {
+    if (!vscode.workspace.isTrusted) return;
+    try {
+      const bin = await localizar('codex', opcoes('codex').comando);
+      if (!bin) throw new Error('Codex CLI nao encontrado.');
+      await webview.postMessage({
+        tipo: 'recursosNativos',
+        lista: await appsCodex(bin),
+      } satisfies DoHost);
+    } catch (e) {
+      await webview.postMessage({
+        tipo: 'recursosNativos',
+        lista: [],
+        diagnostico: mascarar(e instanceof Error ? e.message : 'Catalogo nativo indisponivel.'),
+      } satisfies DoHost);
+    }
+  };
+  const integracoes = new Integracoes(
+    {
+      ler: async () =>
+        (await storage.obter<RegistroIntegracao[]>('globais', '', 'integracoes')) ?? [],
+      salvar: async (itens) => storage.gravar('globais', '', 'integracoes', itens),
+    },
+    context.secrets,
+    sala.portao,
+    (e) => {
+      sala.integracoesConectadas = integracoes
+        .listar()
+        .filter((r) => r.estado === 'conectada' && r.ativa).length;
+      for (const v of views) void v.postMessage(e);
+      sala.estadoCompleto();
+    },
+    async (r, token) => {
+      if (!['oauth', 'oauth_cliente_proprio'].includes(r.autenticacao))
+        return conectarMcp(r, token);
+      const oauth = new OAuthMcp(r.id, context.secrets, async (url) => {
+        if (!(await vscode.env.openExternal(vscode.Uri.parse(url))))
+          throw new Error('Nao foi possivel abrir login OAuth.');
+      }, undefined, r.autenticacao === 'oauth');
+      try {
+        await oauth.iniciar();
+        await oauth.autorizar(r.url!);
+        return await conectarMcp(r, undefined, 15000, oauth);
+      } finally {
+        await oauth.fechar();
+      }
+    },
+  );
+  await integracoes.iniciar();
+  const executor = new ExecutorFerramentas(
+    sala,
+    raizes,
+    abrir,
+    join(pasta, 'sessoes'),
+    integracoes,
+    skills,
+  );
+  const ponte = new PonteHttp(
+    (id, nome, args, sinal) => executor.executar(id, nome, args, sinal),
+    () => integracoes.ferramentas(),
+  );
   await ponte.iniciar();
   const anexador = new Anexador(
     join(pasta, 'anexos'),
@@ -162,9 +258,45 @@ export async function activate(
     );
     const capacidade = ponte.criar(agente.id, sinal);
     protegerSegredo(capacidade.token);
-    const diretorio = join(pasta, 'sessoes', sala.id, agente.id, randomUUID());
+    const diretorio = join(pasta, 'sessoes', sala.chat.id, agente.id, randomUUID());
     const regras: string[] = [];
     try {
+      const lista = await skills.listar();
+      regras.push(
+        'Skills disponiveis via skill_ler (use #nome): ' +
+          lista
+            .filter((s) => s.ativa)
+            .map((s) => `${s.nome}: ${s.descricao.slice(0, 80)}`)
+            .join('\n')
+            .slice(0, 40000),
+      );
+      const atual =
+        [...sala.mensagens].reverse().find((m) => m.tipo === 'fala' && m.autor === sala.config.nick)
+          ?.texto ?? '';
+      const selecionadas = [...atual.matchAll(/(?:^|\s)#([\p{L}\p{N}_:-]+)/gu)].map((m) =>
+        m[1].toLowerCase(),
+      );
+      for (const nome of new Set(selecionadas)) {
+        if (lista.some((s) => s.nome === nome && s.ativa))
+          regras.push(
+            `Skill solicitada #${nome}:\n${await executor.executar(agente.id, 'skill_ler', { nome }, sinal)}`,
+          );
+        else {
+          const i = integracoes.listar().find((i) => i.id === nome);
+          if (i)
+            regras.push(
+              `Integracao solicitada #${nome}: ${i.estado}, ${i.ativa ? 'ativa' : 'inativa'}. Se indisponivel na ponte, procure o recurso nativo deste agente e informe autenticacao necessaria; nao invente resultados.`,
+            );
+          else if (nome === 'code-review')
+            regras.push(
+              'Especialidade #code-review: revise o diff relevante para bugs, regressao, isolamento, seguranca e contratos. Apresente achados com arquivo e linha, prioridade e cenario concreto. Nao implemente correcoes sem pedido. Use skill nativa de revisao se instalada. Nao e servico externo nem exige conta.',
+            );
+          else
+            regras.push(
+              `Especialista solicitado #${nome}: procurar nas skills/plugins/Apps nativos. Nao registrado na ponte compartilhada.`,
+            );
+        }
+      }
       if (projeto && agente.modo !== 'escrita')
         for (const nome of ['AGENTS.md', 'CLAUDE.md', join('orquestra', 'MEMORIA.md')]) {
           const caminho = join(projeto, nome);
@@ -184,18 +316,37 @@ export async function activate(
         for (const a of [...sala.anexos.values()]
           .filter((a) => enviados.has(a.meta.id) && a.meta.tipo === 'imagem' && a.arquivo)
           .slice(-4)) {
-          const mime = /\.jpe?g$/i.test(a.meta.nome)
-            ? 'image/jpeg'
-            : /\.webp$/i.test(a.meta.nome)
-              ? 'image/webp'
-              : /\.gif$/i.test(a.meta.nome)
-                ? 'image/gif'
-                : 'image/png';
-          imagens.push({ mime, base64: (await readFile(a.arquivo!)).toString('base64') });
+          const conteudo = await lerImagem(a.arquivo!, sala.config.limites.imagemMaxMB);
+          const imagem = conteudo.conteudoMcp.find((c) => c.type === 'image');
+          if (imagem?.type === 'image')
+            imagens.push({ mime: imagem.mimeType, base64: imagem.data });
         }
+      const mensagemAtual = [...sala.mensagens]
+        .reverse()
+        .find((m) => m.tipo === 'fala' && m.autor === sala.config.nick);
+      const atuais = new Set((mensagemAtual?.anexos ?? []).map((a) => a.id));
+      const caminhosImagens =
+        agente.tipo === 'cli' && ['claude', 'codex', 'gemini'].includes(agente.id)
+          ? await imagensNativas(
+              [...sala.anexos.values()].filter((a) => atuais.has(a.meta.id)),
+              sala.config.nivel,
+              diretorio,
+              sala.config.limites.imagemMaxMB,
+            )
+          : [];
+      if (caminhosImagens.length)
+        regras.push(
+          `Imagens da mensagem atual: ${JSON.stringify(caminhosImagens)}. Leia esses arquivos como imagem; nao sao transcricoes. Se a ferramenta nativa nao estiver disponivel, use anexo_ler com o id listado no contexto.`,
+        );
       return {
         regras,
         pedido: {
+          ferramentas: [
+            ...(JSON.parse(
+              JSON.stringify(ferramentas),
+            ) as import('@modelcontextprotocol/sdk/types.js').Tool[]),
+            ...(await integracoes.ferramentas()),
+          ],
           ponte: {
             url: capacidade.url,
             token: capacidade.token,
@@ -203,6 +354,7 @@ export async function activate(
             diretorio,
           },
           imagens,
+          caminhosImagens,
           ferramenta: (nome: string, args: Record<string, unknown>) =>
             executor.executar(agente.id, nome, args, sinal),
         },
@@ -213,15 +365,56 @@ export async function activate(
       };
     } catch (e) {
       capacidade.revogar();
+      await rm(diretorio, { recursive: true, force: true });
       throw e;
     }
   };
-  const views = new Set<vscode.Webview>();
   const broadcast = sala.observar((e) => {
     for (const v of views) void v.postMessage(e);
+    if (e.tipo === 'mensagem') voz.mensagem(e.mensagem);
+    if (e.tipo === 'fase') {
+      voz.fase(e.agente, e.fase);
+      if (
+        !vscode.window.state.focused &&
+        ['concluido', 'aguardando_resposta', 'aguardando_aprovacao'].includes(e.fase.tipo)
+      ) {
+        const nick = sala.provedores.get(e.agente)?.agente.nick ?? 'Agente';
+        void vscode.window.showInformationMessage(
+          `${nick} ${e.fase.tipo === 'concluido' ? 'concluiu' : 'precisa da sua resposta'}`,
+        );
+      }
+    }
+    if (e.tipo === 'pergunta') voz.pergunta(e.pergunta);
   });
+  let sincronizando = false;
+  const sincronizacao = setInterval(() => {
+    if (sincronizando) return;
+    sincronizando = true;
+    void sala
+      .sincronizarGlobal()
+      .then(() => voz.sincronizar())
+      .catch(() => {})
+      .finally(() => {
+        sincronizando = false;
+      });
+  }, 1000);
+  sincronizacao.unref();
   const aviso = (texto: string) =>
     sala.emitir({ tipo: 'aviso', nivel: 'erro', texto: mascarar(texto) });
+  const prepararTroca = async () => {
+    await voz.descartar();
+    await voz.pararLeitura();
+  };
+  const exportarChat = async (id: string) => {
+    const mensagens = await sala.mensagensChat(id);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: projeto ? vscode.Uri.file(join(projeto, 'fagulha-conversa.md')) : undefined,
+      filters: { Markdown: ['md'] },
+    });
+    if (!uri) return;
+    const real = await caminhoReal(uri.fsPath, true);
+    await writeFile(real, exportarMarkdown(mensagens), 'utf8');
+  };
   const login = new GestorLogin({
     provedor: (id) => sala.provedores.get(id),
     emitir: (evento) => sala.emitir(evento),
@@ -242,26 +435,236 @@ export async function activate(
       ],
     };
     views.add(webview);
+    void vscode.commands.executeCommand('setContext', 'fagulha.painelAberto', true);
     webview.html = htmlWebview(webview, context.extensionUri);
     const listener = webview.onDidReceiveMessage(async (entrada) => {
       try {
-        if (entrada?.tipo === 'loginChave' && typeof entrada.chave === 'string')
+        if (
+          ['loginChave', 'leituraNuvemChave'].includes(entrada?.tipo) &&
+          typeof entrada.chave === 'string'
+        )
           protegerSegredo(entrada.chave);
+        if (
+          entrada?.tipo === 'conectarIntegracao' &&
+          entrada.valores &&
+          typeof entrada.valores === 'object'
+        )
+          for (const [k, v] of Object.entries(entrada.valores))
+            if (/token|secret|password/i.test(k) && typeof v === 'string') protegerSegredo(v);
         const m = validarMensagem(entrada);
         if (m.tipo === 'pronto') {
+          await sala.sincronizar();
           await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
           for (const progresso of login.progresso())
             await webview.postMessage({ tipo: 'login', progresso } satisfies DoHost);
+          await webview.postMessage({
+            tipo: 'integracoes',
+            lista: integracoes.listar(),
+          } satisfies DoHost);
+          await webview.postMessage({
+            tipo: 'skills',
+            lista: vscode.workspace.isTrusted ? await skills.listar() : [],
+          } satisfies DoHost);
+          void listarNativos(webview);
           return;
         }
         if (
           !vscode.workspace.isTrusted &&
-          !['parar', 'loginCancelar', 'responderAprovacao', 'carregarAnteriores'].includes(m.tipo)
+          (m.tipo === 'listarIntegracoes' || m.tipo === 'listarSkills')
+        ) {
+          await webview.postMessage(
+            m.tipo === 'listarIntegracoes'
+              ? { tipo: 'integracoes', lista: integracoes.listar() }
+              : { tipo: 'skills', lista: [] },
+          );
+          return;
+        }
+        if (
+          !vscode.workspace.isTrusted &&
+          ![
+            'parar',
+            'responderPergunta',
+            'cancelarPergunta',
+            'leituraNuvemChave',
+            'leituraNuvemRemover',
+            'loginCancelar',
+            'responderAprovacao',
+            'carregarAnteriores',
+            'vozParar',
+            'vozDescartar',
+            'vozCancelarInstalacao',
+            'pararLeitura',
+            'vozIniciar',
+            'vozInstalar',
+            'vozConfigurar',
+            'leituraConfigurar',
+            'lerMensagem',
+            'novoChat',
+            'listarChats',
+            'abrirChat',
+            'renomearChat',
+            'fixarChat',
+            'excluirChat',
+            'exportarChat',
+            'listarMemorias',
+            'salvarMemoria',
+            'excluirMemoria',
+            'exportarConversa',
+          ].includes(m.tipo)
         )
           throw new Error(
             'Conceda confianca ao workspace antes de usar agentes ou importar arquivos.',
           );
+        if (
+          await mensagemIntegracao(integracoes, m, (e) => {
+            for (const v of views) void v.postMessage(e);
+          })
+        )
+          return;
         switch (m.tipo) {
+          case 'listarRecursosNativos':
+            await listarNativos(webview);
+            break;
+          case 'listarSkills':
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'alternarSkill':
+            await skills.alternar(m.nome, m.ativa);
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'verSkill':
+            await webview.postMessage({
+              tipo: 'skill',
+              nome: m.nome,
+              conteudo: await skills.ler(m.nome, true),
+            } satisfies DoHost);
+            break;
+          case 'removerSkill':
+            await skills.remover(m.nome);
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          case 'importarSkill': {
+            const temporaria = join(pasta, 'skill-import', randomUUID());
+            if (m.origem === 'github') {
+              const url = new URL(m.url!);
+              const partes = url.pathname.split('/').filter(Boolean);
+              if (
+                url.hostname !== 'github.com' ||
+                url.protocol !== 'https:' ||
+                url.username ||
+                url.password ||
+                url.search ||
+                partes[2] !== 'tree' ||
+                partes.length < 5 ||
+                !partes.slice(0, 2).every((p) => /^[\w.-]+$/.test(p)) ||
+                !partes.slice(3).every((p) => p !== '.' && p !== '..' && /^[\w.-]+$/.test(p))
+              )
+                throw new Error(
+                  'Use URL GitHub https://github.com/dono/repo/tree/ref/pasta-da-skill.',
+                );
+              const resposta = await fetch(
+                `https://codeload.github.com/${partes[0]}/${partes[1]}/zip/refs/heads/${partes[3]}`,
+                { redirect: 'error', signal: AbortSignal.timeout(30000) },
+              );
+              if (!resposta.ok) throw new Error('Nao foi possivel baixar a skill do GitHub.');
+              const chunks: Uint8Array[] = [];
+              let bytes = 0;
+              for await (const c of resposta.body as unknown as AsyncIterable<Uint8Array>) {
+                bytes += c.length;
+                if (bytes > 5 * 1024 * 1024) {
+                  throw new Error('Repositorio excede 5 MB. Importe a pasta ou ZIP da skill.');
+                }
+                chunks.push(c);
+              }
+              await mkdir(temporaria, { recursive: true });
+              const zip = join(temporaria, 'skill.zip');
+              try {
+                await writeFile(zip, Buffer.concat(chunks));
+                await skills.importarZip(
+                  zip,
+                  join(temporaria, 'extraido'),
+                  partes.slice(4).join('/'),
+                );
+              } finally {
+                await rm(temporaria, { recursive: true, force: true });
+              }
+            } else {
+              const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFolders: m.origem === 'pasta',
+                canSelectFiles: m.origem === 'zip',
+                ...(m.origem === 'zip' ? { filters: { ZIP: ['zip'] } } : {}),
+              });
+              if (!uris?.[0]) break;
+              if (m.origem === 'pasta') await skills.importar(uris[0].fsPath);
+              else await skills.importarZip(uris[0].fsPath, temporaria);
+            }
+            await webview.postMessage({
+              tipo: 'skills',
+              lista: await skills.listar(),
+            } satisfies DoHost);
+            break;
+          }
+          case 'responderPergunta':
+            sala.perguntas.responder(m.id, m.respostas);
+            break;
+          case 'cancelarPergunta':
+            sala.perguntas.cancelar(m.id);
+            break;
+          case 'leituraNuvemChave':
+            await voz.chaveNuvem(m.provedor, m.chave);
+            break;
+          case 'leituraNuvemRemover':
+            await voz.removerChaveNuvem();
+            break;
+          case 'novoChat':
+            await prepararTroca();
+            await sala.novoChat();
+            break;
+          case 'listarChats':
+            await sala.listarChats(m.busca);
+            break;
+          case 'abrirChat':
+            await prepararTroca();
+            await sala.abrirChat(m.id);
+            break;
+          case 'renomearChat':
+            await sala.renomearChat(m.id, m.titulo);
+            break;
+          case 'fixarChat':
+            await sala.fixarChat(m.id, m.fixado);
+            break;
+          case 'excluirChat': {
+            if (m.id === sala.chat.id) await prepararTroca();
+            const arquivos = await sala.excluirChat(m.id);
+            await anexador.excluirSemReferencia(arquivos, async (arquivo) =>
+              (await storage.listar<{ arquivo?: string }>('anexos')).some(
+                (a) => a.arquivo === arquivo,
+              ),
+            );
+            break;
+          }
+          case 'exportarChat':
+            await exportarChat(m.id);
+            break;
+          case 'listarMemorias':
+            await sala.atualizarMemorias();
+            break;
+          case 'salvarMemoria':
+            await sala.salvarMemoria(m);
+            break;
+          case 'excluirMemoria':
+            await sala.excluirMemoria(m.id);
+            break;
           case 'enviar':
             sala.enviar(m.texto, m.anexos);
             break;
@@ -307,11 +710,14 @@ export async function activate(
             break;
           case 'importarContexto': {
             const candidatos = await descobrirContextos();
-            const outras = await storage.listar<Mensagem>('mensagens');
-            const salas = [...new Set(outras.map((m) => m.sala))].filter((s) => s !== sala.id);
+            const chats = (await sala.chats.listar()).filter((c) => c.id !== sala.chat.id);
             const itens = [
               ...candidatos.map((c) => ({ label: c.titulo, description: c.origem, c })),
-              ...salas.map((s) => ({ label: s, description: 'Orquestrador Fagulha', s })),
+              ...chats.map((c) => ({
+                label: c.titulo,
+                description: c.projetoNome ?? 'Sem projeto',
+                s: c.id,
+              })),
             ];
             const selecionado = await vscode.window.showQuickPick(itens, {
               title: 'Importar contexto local',
@@ -320,8 +726,7 @@ export async function activate(
             if (selecionado && 'c' in selecionado)
               await sala.adicionarContexto(await importarContexto(selecionado.c));
             if (selecionado && 's' in selecionado) {
-              const texto = outras
-                .filter((m) => m.sala === selecionado.s)
+              const texto = (await sala.mensagensChat(selecionado.s))
                 .map((m) => `${m.autor}: ${m.texto}`)
                 .join('\n')
                 .slice(-12000);
@@ -341,7 +746,7 @@ export async function activate(
             await sala.removerContexto(m.id);
             break;
           case 'responderAprovacao':
-            sala.portao.responder(m.id, m.decisao);
+            await sala.responderAprovacao(m.id, m.decisao);
             break;
           case 'agenteHabilitar':
             await sala.atualizarAgente(m.id, { habilitado: m.habilitado });
@@ -428,18 +833,43 @@ export async function activate(
             await sala.configurar({ nivel: m.nivel }, m.confirmacao);
             break;
           case 'concluirAssistente':
-            sala.primeiraExecucao = false;
-            await sala.salvar();
-            sala.estadoCompleto();
+            await sala.concluirAssistente();
             break;
           case 'vozIniciar':
             await voz.iniciar();
             break;
-          case 'vozParar': {
-            const transcricao = await voz.parar();
-            sala.emitir({ tipo: 'voz', gravando: false, transcricao });
+          case 'vozParar':
+            await voz.parar();
+            break;
+          case 'vozDescartar':
+            await voz.descartar();
+            break;
+          case 'vozInstalar':
+            await voz.instalar(m.componentes);
+            break;
+          case 'vozCancelarInstalacao':
+            voz.cancelarInstalacao();
+            break;
+          case 'vozConfigurar': {
+            const { tipo, ...parcial } = m;
+            await voz.configurar(parcial);
             break;
           }
+          case 'leituraConfigurar': {
+            const { tipo, ...parcial } = m;
+            await voz.configurarLeitura(parcial);
+            break;
+          }
+          case 'lerMensagem': {
+            const mensagem = sala.mensagens.find((x) => x.id === m.id);
+            if (!mensagem) throw new Error('Mensagem não encontrada.');
+            await voz.pararLeitura();
+            await voz.ler(mensagem);
+            break;
+          }
+          case 'pararLeitura':
+            await voz.pararLeitura();
+            break;
           case 'abrirLink':
             await sala.portao.executar(
               {
@@ -453,19 +883,7 @@ export async function activate(
             );
             break;
           case 'exportarConversa': {
-            const uri = await vscode.window.showSaveDialog({
-              defaultUri: projeto
-                ? vscode.Uri.file(join(projeto, 'orquestra-conversa.md'))
-                : undefined,
-              filters: { Markdown: ['md'] },
-            });
-            if (!uri) break;
-            const real = await caminhoReal(uri.fsPath, true);
-            await writeFile(
-              real,
-              sala.mensagens.map((m) => `## ${m.autor} — ${m.quando}\n\n${m.texto}\n`).join('\n'),
-              'utf8',
-            );
+            await exportarChat(sala.chat.id);
             break;
           }
         }
@@ -475,6 +893,7 @@ export async function activate(
     });
     const disposal = descartado(() => {
       views.delete(webview);
+      void vscode.commands.executeCommand('setContext', 'fagulha.painelAberto', views.size > 0);
       listener.dispose();
       disposal.dispose();
     });
@@ -492,6 +911,15 @@ export async function activate(
     ),
   );
   context.subscriptions.push(
+    vscode.commands.registerCommand('fagulha.vozAlternar', async () => {
+      if (!views.size) return;
+      try {
+        if (voz.estado.gravando) await voz.parar();
+        else await voz.iniciar();
+      } catch (e) {
+        aviso((e as Error).message);
+      }
+    }),
     vscode.commands.registerCommand('fagulha.abrirNoEditor', () => {
       const panel = vscode.window.createWebviewPanel(
         'fagulha.sala',
@@ -504,11 +932,15 @@ export async function activate(
     }),
   );
   encerrar = async () => {
+    clearInterval(sincronizacao);
+    await voz.finalizar();
     await login.finalizar();
     sala.parar();
     broadcast();
     await sala.esperar();
     await ponte.finalizar();
+    await executor.fecharNavegadores();
+    await integracoes.finalizar();
     await storage.finalizar();
   };
   context.subscriptions.push({

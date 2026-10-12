@@ -10,6 +10,9 @@ export interface ConfigLogin {
   tipoChave?: TipoChave;
   baseUrl?: () => string;
   salvarBaseUrl?: (url: string) => Promise<void>;
+  loginConta?: (sinal: AbortSignal, saida: (texto: string) => void) => Promise<void>;
+  logoutConta?: (sinal: AbortSignal) => Promise<void>;
+  linkContaPermitido?: (url: string) => boolean;
   comando?: (
     args: string[],
     sinal: AbortSignal,
@@ -24,13 +27,11 @@ export function opcoesLogin(id: string): OpcaoLogin[] {
   if (id === 'claude')
     return [
       { metodo: 'navegador', rotulo: 'Assinatura Claude', variante: 'claudeai' },
-      { metodo: 'navegador', rotulo: 'Anthropic Console', variante: 'console' },
     ];
   if (id === 'codex')
     return [
       { metodo: 'navegador', rotulo: 'Conta ChatGPT' },
       { metodo: 'dispositivo', rotulo: 'Código de dispositivo' },
-      { metodo: 'chave', rotulo: 'Chave de API OpenAI', linkChave: openai },
     ];
   if (id === 'gemini' || id === 'gemini-api')
     return [{ metodo: 'chave', rotulo: 'Chave do Google AI Studio', linkChave: google }];
@@ -44,6 +45,8 @@ export function opcoesLogin(id: string): OpcaoLogin[] {
     ];
   if (id === 'openai-api')
     return [{ metodo: 'chave', rotulo: 'Chave de API OpenAI', linkChave: openai }];
+  if (id === 'mistral-api')
+    return [{ metodo: 'chave', rotulo: 'Chave da API Mistral', linkChave: 'https://console.mistral.ai/api-keys' }];
   if (id === 'openai-compativel')
     return [{ metodo: 'chave', rotulo: 'Chave e endereço da API', variante: 'com_baseUrl' }];
   return [];
@@ -142,6 +145,7 @@ const dominiosLogin = [
   'aistudio.google.com',
   'google.com',
   'accounts.google.com',
+  'mistral.ai',
 ];
 export function validarLinkLogin(valor: string, emitidas: Iterable<string> = []): string {
   let url: URL;
@@ -327,7 +331,7 @@ export class GestorLogin {
       )
         throw new ErroLogin('Escolha uma das opções de login disponíveis para este agente.');
       const comando = p.autenticacao!.comando;
-      if (!comando)
+      if (!comando && !p.autenticacao!.loginConta)
         throw new ErroLogin('Login pelo navegador não está disponível para este agente.');
       let buffer = '';
       let parserTimer: ReturnType<typeof setTimeout> | undefined;
@@ -350,7 +354,7 @@ export class GestorLogin {
         // Somente domínios conhecidos são aceitos ao extrair URLs de um processo.
         let url: string;
         try {
-          url = validarLinkLogin(instrucao.url);
+          url = validarLinkLogin(instrucao.url, p.autenticacao!.linkContaPermitido?.(instrucao.url) ? [instrucao.url] : []);
         } catch {
           return;
         }
@@ -384,7 +388,8 @@ export class GestorLogin {
           ? ['auth', 'login', `--${variante}`]
           : ['login', ...(metodo === 'dispositivo' ? ['--device-auth'] : [])];
       try {
-        await comando(args, f.controle.signal, emitirSaida);
+        if (p.autenticacao!.loginConta) await p.autenticacao!.loginConta(f.controle.signal, emitirSaida);
+        else await comando!(args, f.controle.signal, emitirSaida);
       } catch (e) {
         this.conferir(f);
         if (
@@ -397,7 +402,7 @@ export class GestorLogin {
         metodoAtual = 'dispositivo';
         buffer = '';
         f.url = undefined;
-        await comando(['login', '--device-auth'], f.controle.signal, emitirSaida);
+        await comando!(['login', '--device-auth'], f.controle.signal, emitirSaida);
       } finally {
         clearTimeout(parserTimer);
       }
@@ -478,6 +483,7 @@ export class GestorLogin {
       const auth = p.autenticacao!;
       let falhou = false;
       try {
+        if (auth.logoutConta) await auth.logoutConta(f.controle.signal);
         if (auth.comando && (id === 'claude' || id === 'codex'))
           await auth.comando(
             id === 'claude' ? ['auth', 'logout'] : ['logout'],

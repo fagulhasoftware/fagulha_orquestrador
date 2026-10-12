@@ -1,17 +1,18 @@
-## O que muda
+## What changes
 
-<!-- Descreva a mudança e o motivo. Referencie a issue: "Resolve #123". -->
+<!-- Describe the change and why. Reference the issue: "Fixes #123". -->
 
-## Como testei
+## How I tested
 
-<!-- Passos de teste manual no VS Code (F5) e testes automatizados adicionados. -->
+<!-- Manual test steps in VS Code (F5) and automated tests added. -->
 
 ## Checklist
 
-- [ ] `npm run format`, `npm run check:webview` e `npm test` passam.
-- [ ] `npm run package` passa, incluindo o verificador de privacidade.
-- [ ] Novos comportamentos têm testes.
-- [ ] Nenhum dado pessoal, chave, caminho da minha máquina ou arquivo local foi incluído.
-- [ ] Ações novas de agentes passam pelo Portão de Permissões.
-- [ ] Se alterei `src/shared/protocolo.ts`, descrevi o impacto e ajustei `VERSAO_PROTOCOLO` quando necessário.
-- [ ] Atualizei README, CHANGELOG ou docs quando aplicável.
+- [ ] `npm run format`, `npm run check:webview` and `npm test` pass.
+- [ ] `npm run package` passes, including the privacy check.
+- [ ] New behavior has tests.
+- [ ] No personal data, keys, paths from my machine or local files are included.
+- [ ] New agent actions go through the approval gate.
+- [ ] User-facing text exists in every supported language (en, pt-BR, es, de).
+- [ ] If I changed `src/shared/protocolo.ts`, I described the impact and bumped `VERSAO_PROTOCOLO` when needed.
+- [ ] I updated README, CHANGELOG or docs when applicable.
