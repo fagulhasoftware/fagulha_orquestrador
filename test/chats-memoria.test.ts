@@ -117,7 +117,7 @@ test('migracao v1 preserva todas as entidades, titulo, pendentes e sessoes; e id
     assert.deepEqual(restaurada.chat.agentes, ['Codex']);
     assert.equal(restaurada.estado().anexosPendentes.length, 1);
     assert.equal(restaurada.estado().contextos.length, 1);
-    assert.equal(restaurada.agentes[0].temSessao, true);
+    assert.equal(restaurada.agentes[0].temSessao, false, 'cursor legado sem ancora exige contexto novo');
     for (const t of tabelasChat.filter((t) => t !== 'perguntas'))
       assert((await db.listar(t, restaurada.chat.id)).length > 0, t);
     const verificador = new sql.Database(await readFile(arquivo));
@@ -602,7 +602,7 @@ test('menu e exportacao leem o chat durante execucao; Novo chat cancela sem mist
     await s.novoChat();
     assert.notEqual(s.chat.id, anterior);
     assert.equal(s.mensagens.length, 0);
-    assert((await s.mensagensChat(anterior)).some((m) => m.texto === 'Fim da conversa anterior'));
+    assert(!(await s.mensagensChat(anterior)).some((m) => m.texto === 'Fim da conversa anterior'), 'saida apos cancelamento deve ser descartada');
   } finally {
     await tmp.limpar();
   }

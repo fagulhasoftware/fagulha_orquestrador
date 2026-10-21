@@ -19,7 +19,7 @@ import {
 import { InstaladorVoz, validarDownload, extrairBinarios } from '../src/voice/instalador';
 import { argumentosGravacao } from '../src/voice/gravador';
 import { argumentosTranscricao, normalizarMencoes } from '../src/voice/transcritor';
-import { argumentosLeitura, textoParaLeitura, Leitor } from '../src/voice/leitor';
+import { textoParaLeitura } from '../src/voice/texto';
 import {
   executarVoz,
   type FabricaProcesso,
@@ -151,6 +151,11 @@ async function controlador(
     pasta,
     so: 'win32',
     fabrica: fake.fabrica,
+    reproduzir: async (pacote,sinal) => {
+      const p=fake.fabrica('webview-audio',[]);p.escrever(pacote.texto);p.fecharEntrada();
+      const cancelar=()=>p.cancelar();sinal.addEventListener('abort',cancelar,{once:true});
+      try{await p.resultado;}finally{sinal.removeEventListener('abort',cancelar);}
+    },
     limiteSegundos: limite,
     detectar,
     agentes: () => agentes,
@@ -161,6 +166,7 @@ async function controlador(
     },
   });
   await voz.inicializar();
+  voz.registrarVozesSistema(true,[{id:"voz",nome:"Voz fixture"}]);
   return { voz, eventos, auditoria, enviados };
 }
 async function http(handler: (req: IncomingMessage, res: ServerResponse) => void) {
@@ -270,18 +276,6 @@ test('argumentos de gravação/transcrição/leitura por SO e texto fora do argv
     '-nt',
     '-np',
   ]);
-  assert(
-    argumentosLeitura('win32', 'powershell.exe', 'texto.txt', 'voz', 1).includes('-NonInteractive'),
-  );
-  assert.deepEqual(argumentosLeitura('darwin', 'say', 'texto.txt', 'Joana', 1.5), [
-    '-v',
-    'Joana',
-    '-r',
-    '263',
-    '-f',
-    'texto.txt',
-  ]);
-  assert(argumentosLeitura('linux', 'espeak-ng', 'texto.txt', 'pt', 1).includes('--stdin'));
   assert(argumentosMicrofones('win32').includes('dshow'));
   assert(argumentosMicrofones('darwin').includes('avfoundation'));
 });
@@ -416,7 +410,7 @@ test('configuração de voz persiste separada da conversa, com defaults seguros'
       modelo: 'medium',
       idioma: 'es',
       envioAutomatico: true,
-      leitura: { ativa: true, voz: 'voz', velocidade: 1.5, variacao: 0.5, vozesNuvem: [] },
+      leitura: { ativa: true, voz: 'voz', velocidade: 1.5, variacao: 0.5, porAgente: {}, vozesNuvem: [] },
     });
     const segunda = await controlador(tmp.pasta, processosFicticios());
     assert.equal(segunda.voz.estado.modelo, 'medium');
@@ -452,33 +446,12 @@ test('leitura automática só de agentes finais, sem duplicar parciais ou falar 
     assert.equal(c.voz.estado.leitura.falando, undefined);
     c.voz.mensagem(fala('5'));
     await pausa();
-    assert.equal(fake.chamados.filter((p) => p.comando === 'powershell.exe').length, 1);
+    assert.equal(fake.chamados.filter((p) => p.comando === 'webview-audio').length, 1);
     await c.voz.descartar();
     await c.voz.finalizar();
     assert.deepEqual(await arquivos(join(tmp.pasta, 'temporarios')), []);
   } finally {
     await c.voz.finalizar();
-    await tmp.limpar();
-  }
-});
-test('pararLeitura cancela inclusive a inicialização e remove arquivo temporário do macOS', async () => {
-  const tmp = await temporario();
-  const fake = processosFicticios({ ttsPendente: true });
-  const leitor = new Leitor(tmp.pasta, fake.fabrica, 'darwin');
-  try {
-    const primeira = leitor.ler('say', 'Texto sensível', estadoInicialVoz().leitura);
-    await leitor.parar();
-    await primeira;
-    const segunda = leitor.ler('say', 'Texto sensível', estadoInicialVoz().leitura);
-    await esperar(() => fake.chamados.length > 0);
-    const arquivo = fake.chamados.at(-1)!.args.at(-1)!;
-    assert.equal(await readFile(arquivo, 'utf8'), 'Texto sensível');
-    assert(!fake.chamados.at(-1)!.args.includes('Texto sensível'));
-    await leitor.parar();
-    await segunda;
-    assert.deepEqual(await arquivos(tmp.pasta), []);
-  } finally {
-    await leitor.parar();
     await tmp.limpar();
   }
 });

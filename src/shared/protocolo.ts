@@ -10,7 +10,8 @@ export type NivelPermissao = 'manual' | 'parcial' | 'total';
 export type ModoAgente = 'leitura_escrita' | 'leitura' | 'escrita';
 export type TipoProvedor = 'cli' | 'api';
 export type EstadoLogin = 'conectado' | 'desconectado' | 'chave_configurada' | 'desconhecido';
-export type EstadoAgente = 'livre' | 'na_fila' | 'trabalhando' | 'desabilitado' | 'erro';
+export type EstadoAgente =
+  'livre' | 'na_fila' | 'trabalhando' | 'desabilitado' | 'erro' | 'travado';
 
 // ---------- estagio do agente (v5) ----------
 export type TipoFase =
@@ -112,6 +113,17 @@ export type CategoriaAcao =
   | 'memoria'
   | 'irreversivel_externo';
 
+export interface ModeloOpcao {
+  id: string;
+  nome: string;
+  esforcos?: string[];
+}
+export interface CatalogoModelos {
+  modelos: ModeloOpcao[];
+  origem: 'runtime' | 'api' | 'settings';
+  detalhe?: string;
+  padrao?: string;
+}
 export interface Agente {
   id: string; // 'claude', 'codex', 'gemini', 'ollama:llama3', ...
   nick: string; // nome exibido e usado na mencao (@nick)
@@ -132,6 +144,11 @@ export interface Agente {
   cor: string; // token de cor sugerido: 'amarelo' | 'verde' | 'magenta' | 'azul' | 'ciano' | 'laranja'
   suportaImagem: boolean;
   temSessao: boolean;
+  modelo?: string;
+  esforco?: string;
+  modeloAtivo?: string;
+  esforcoAtivo?: string;
+  catalogoModelos?: CatalogoModelos;
 }
 
 export interface Anexo {
@@ -152,6 +169,8 @@ export interface ContextoImportado {
   caracteres: number;
 }
 
+export interface TurnoAtividade { id: string; agente: string; autor: string; inicio: string; fim?: string; fase?: FaseAgente; }
+
 export interface Mensagem {
   id: string;
   sala: string;
@@ -160,6 +179,9 @@ export interface Mensagem {
   tipo: 'fala' | 'acao' | 'sistema' | 'erro';
   texto: string; // markdown para 'fala'; texto simples para os demais
   anexos?: { id: string; nome: string; tipo: Anexo['tipo'] }[]; // [v1.1] era string[]; o webview precisa do nome apos o envio
+  requisicaoId?: string;
+  contextoSeq?: number;
+  modelo?: string;
   parcial?: boolean; // true enquanto o agente ainda esta escrevendo esta fala
 }
 
@@ -227,6 +249,8 @@ export interface Memoria {
 
 export interface EstadoSala {
   versaoProtocolo: number;
+  turnos?: TurnoAtividade[];
+  atividadesExpandidas?: boolean;
   sala: { id: string; projeto: string | null; titulo: string }; // sala da janela (pasta); id interno
   chat: ResumoChat; // v4: chat aberto nesta janela
   memoriasAtivas: number; // v4: quantas memorias (global + deste projeto) estao sendo enviadas aos agentes
@@ -270,6 +294,8 @@ export interface ProgressoInstalacaoVoz {
   mensagem?: string;
 }
 
+export type ProvedorVozNuvem = 'openai' | 'elevenlabs' | 'gemini';
+export interface PacoteAudioVoz { id:string; texto:string; base64?:string; mime?:'audio/wav'|'audio/mpeg'; velocidade:number; voz?:string; }
 export type MotorLeitura = 'sistema' | 'piper' | 'nuvem';
 
 export interface EstadoVoz {
@@ -297,7 +323,10 @@ export interface EstadoVoz {
     motor: MotorLeitura;
     motores: { id: MotorLeitura; disponivel: boolean; motivo?: string }[];
     variacao: number; // 0 a 1: variacao de entonacao (personalidade); usado por piper e nuvem
-    nuvem: { provedor: 'openai' | 'elevenlabs' | null; chaveConfigurada: boolean };
+    nuvem: { provedor: ProvedorVozNuvem | null; chaveConfigurada: boolean; mascara?:string; nota?:string };
+    ttsModelo?:string;
+    modelosNuvem?:{id:string;nome:string;vozes?:string[]}[];
+    porAgente?:Record<string,string>;
   };
 }
 
@@ -382,6 +411,8 @@ export type DoWebview =
   | { tipo: 'logout'; id: string }
   | { tipo: 'abrirLinkLogin'; url: string } // v2: links de login/console nao passam pelo Portao (acao do proprio usuario); host aceita so URLs de login conhecidas
   | { tipo: 'agenteNovaSessao'; id: string }
+  | { tipo: 'agenteModelos'; id: string }
+  | { tipo: 'agenteModelo'; id: string; modelo: string; esforco?: string }
   | { tipo: 'agenteConfigurar'; id: string } // [v1.1] host abre os settings fagulha.provedores.<id> (modelo, baseUrl, comando)
   | { tipo: 'instalarAgente' } // host oferece manifesto ou extensao
   | { tipo: 'configurar'; parcial: Partial<Omit<Configuracao, 'nivel' | 'nivelConfirmadoEm'>> }
@@ -406,9 +437,17 @@ export type DoWebview =
       velocidade?: number;
       motor?: MotorLeitura;
       variacao?: number;
+      provedor?:ProvedorVozNuvem;
+      ttsModelo?:string;
+      porAgente?:Record<string,string>;
     }
-  | { tipo: 'leituraNuvemChave'; provedor: 'openai' | 'elevenlabs'; chave: string } // v5: validada antes de gravar
+  | { tipo: 'leituraNuvemChave'; provedor: ProvedorVozNuvem; chave: string } // v5: validada antes de gravar
   | { tipo: 'leituraNuvemRemover' }
+  | { tipo: 'leituraVozesAtualizar' }
+  | { tipo: 'leituraTestar' }
+  | { tipo: 'vozAudioEstado'; id:string; estado:'concluido'|'erro'|'cancelado' }
+  | { tipo: 'vozAudioFalha'; motivo:string }
+  | { tipo: 'vozesSistema'; disponivel:boolean; vozes:{id:string;nome:string}[] }
   | { tipo: 'responderPergunta'; id: string; respostas: RespostaItem[] } // v5
   | { tipo: 'cancelarPergunta'; id: string }
   // v6: integrations
@@ -462,6 +501,7 @@ export type DoHost =
   | { tipo: 'anteriores'; mensagens: Mensagem[]; fim: boolean }
   | { tipo: 'agente'; agente: Agente }
   | { tipo: 'login'; progresso: ProgressoLogin } // v2
+  | { tipo: 'turno'; turno: TurnoAtividade }
   | { tipo: 'fase'; agente: string; fase: FaseAgente } // v5
   | { tipo: 'pergunta'; pergunta: PerguntaAgente } // v5
   | { tipo: 'perguntaResolvida'; id: string; situacao: 'respondida' | 'cancelada' | 'expirada' }
@@ -478,6 +518,8 @@ export type DoHost =
   | { tipo: 'aprovacaoResolvida'; id: string; decisao: DecisaoAprovacao | 'expirada' }
   | { tipo: 'configuracao'; configuracao: Configuracao }
   | { tipo: 'voz'; gravando: boolean; transcricao?: string; erro?: string } // v1, mantido
+  | {tipo:'vozReproduzir';audio:PacoteAudioVoz}
+  | {tipo:'vozPararAudio';id:string}
   | { tipo: 'estadoVoz'; voz: EstadoVoz } // v3: estado completo da voz
   | { tipo: 'vozInstalacao'; progresso: ProgressoInstalacaoVoz } // v3
   | { tipo: 'aviso'; nivel: 'info' | 'alerta' | 'erro'; texto: string }

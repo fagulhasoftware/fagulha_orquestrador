@@ -12,8 +12,13 @@ export interface PonteSessao {
   diretorio: string;
 }
 export interface PedidoExecucao {
+  modelo?: string;
+  esforco?: string;
+  requisicaoId?: string;
+  contextoSeq?: number;
   ferramentas?: import('@modelcontextprotocol/sdk/types.js').Tool[];
   prompt: string;
+  promptCompleto?: string;
   projeto: string;
   modo: ModoAgente;
   nivel: NivelPermissao;
@@ -24,6 +29,7 @@ export interface PedidoExecucao {
   ferramenta?: (nome: string, args: Record<string, unknown>) => Promise<unknown>;
 }
 export interface EventosProvedor {
+  modelo?(id: string): void;
   fase?(tipo: import('../shared/protocolo').TipoFase, detalhe?: string): void;
   sessao(id: string): void;
   fala(texto: string): void;
@@ -35,6 +41,7 @@ export interface EventosProvedor {
 export interface Provedor {
   agente: Agente;
   autenticacao?: ConfigLogin;
+  listarModelos?(): Promise<import('../shared/protocolo').CatalogoModelos>;
   detectar(): Promise<Deteccao>;
   estadoLogin(sinal?: AbortSignal): Promise<EstadoLogin>;
   login(): Promise<void>;

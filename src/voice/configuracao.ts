@@ -14,9 +14,14 @@ const esquema = z.object({
       ativa: z.boolean().default(false),
       voz: z.string().max(200).optional(),
       velocidade: z.number().min(0.5).max(2).default(1),
-      motor: z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      motor: z.preprocess(
+        (v) => (v === 'piper' ? 'sistema' : v),
+        z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      ),
       variacao: z.number().min(0).max(1).default(0.5),
-      provedor: z.enum(['openai', 'elevenlabs']).optional(),
+      provedor: z.enum(['openai', 'elevenlabs', 'gemini']).optional(),
+      ttsModelo: z.string().max(200).optional(),
+      porAgente: z.record(z.string().max(200)).default({}),
       vozesNuvem: z
         .array(z.object({ id: z.string().max(200), nome: z.string().max(200) }))
         .max(100)

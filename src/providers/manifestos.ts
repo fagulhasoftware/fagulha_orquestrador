@@ -11,6 +11,7 @@ import {
 } from './tipos';
 import { rodar } from './processo';
 import { ambienteConta } from './autenticacao';
+import { catalogoConfigurado } from './modelos';
 import { mascarar } from '../core/seguranca';
 const schema = z
   .object({
@@ -27,6 +28,7 @@ const schema = z
     suportaImagem: z.boolean().default(false),
     baseUrl: z.string().url().optional(),
     modelo: z.string().max(200).optional(),
+    modelos: z.array(z.string().max(200)).max(500).optional(),
     login: z.array(z.string().max(2048)).max(20).optional(),
   })
   .strict();
@@ -54,6 +56,18 @@ export class CliGenerico implements Provedor {
     this.agente.origem = 'manifesto';
     this.agente.suportaImagem = false;
   }
+  async listarModelos() {
+    return catalogoConfigurado(
+      this.m.argumentos?.some((a) => a.includes('{modelo}'))
+        ? {
+            modelos: (this.opcoes().modelos ?? this.m.modelos ?? []).map((m) =>
+              typeof m === 'string' ? m : { id: m.id, nome: m.nome },
+            ),
+          }
+        : {},
+      'CLI generica exige {modelo} em argumentos e lista configurada.',
+    );
+  }
   async detectar() {
     try {
       const versao = await rodar(this.opcoes().comando ?? this.m.comando!, ['--version'], {
@@ -75,6 +89,7 @@ export class CliGenerico implements Provedor {
     const args = (this.m.argumentos ?? []).map((a) =>
       a
         .replaceAll('{prompt}', p.prompt)
+        .replaceAll('{modelo}', p.modelo || this.opcoes().modelo || this.m.modelo || '')
         .replaceAll('{sessao}', p.sessao ?? '')
         .replaceAll('{modo}', p.nivel === 'manual' ? 'leitura' : p.modo),
     );
@@ -131,6 +146,7 @@ export function criarProvedorManifesto(
       ({
         baseUrl: opcoes().baseUrl ?? m.baseUrl,
         modelo: opcoes().modelo ?? m.modelo,
+        modelos: opcoes().modelos ?? m.modelos,
       }) as OpcoesApi,
     () => pedirChave(m.id),
   );

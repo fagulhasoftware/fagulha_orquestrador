@@ -67,7 +67,7 @@ export class ClienteAcp {
   }
   async inicializar() {
     const r = await this.request('initialize', { protocolVersion: 1,
-      clientInfo: { name: 'fagulha_orquestrador', title: 'Orquestrador Fagulha', version: '0.4.5' },
+      clientInfo: { name: 'fagulha_orquestrador', title: 'Orquestrador Fagulha', version: '0.5.0' },
       clientCapabilities: { _meta: { 'browser-auth-delegated': true } },
     });
     if (r?.protocolVersion !== 1) throw new ErroAcp('Versao ACP nao suportada.');

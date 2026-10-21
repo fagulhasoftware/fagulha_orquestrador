@@ -1,4 +1,5 @@
 export const comandosSala = [
+  { valor: 'reiniciar-contexto', rotulo: 'Reiniciar contexto: /reiniciar-contexto @agente' },
   {
     valor: 'pausar',
     rotulo: 'Interromper a execucao atual; /continuar retoma o agente pelo contexto',

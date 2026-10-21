@@ -1,4 +1,28 @@
+## 0.6.0 ? 2026-10-21
+
+- Atividades por turno recolhidas, detalhes individuais, tempo ao vivo e acessibilidade; erros e aprovacoes visiveis.
+- Limite de passagens autonomas aumentado de 20 para 50.
+- TTS Gemini, ElevenLabs e OpenAI, catalogos, SecretStorage, teste, velocidade e voz por agente; fallback nativo.
+- Corrigidos handlers de chave TTS e reproducao pelo webview; removidos Piper e players externos da leitura.
+- FFmpeg e Whisper permanecem opcionais para ditado. Preservadas protecoes de contexto e acesso Total do Mistral.
+
 # Changelog
+
+## 0.5.0
+
+- Add per-agent model pickers, persisted selections, runtime/API catalogs, configurable fallback lists and supported reasoning effort controls. Apply changes on the next turn without interrupting the current model.
+- Preserve provider quota/availability diagnostics and retry once with the provider default when an explicit model/effort fails. Never switch authentication sources.
+- Ignore ACP session-load history replay, deduplicate stream/final output and supply full recent context when Mistral cannot resume. Preserve Mistral Total auto-approve.
+- Correlate turns using request IDs and persistent context sequences; reject cancelled/outdated output and only persist successful session cursors with a message anchor.
+- Detect repeated responses, failed explicit arithmetic checks and active timeouts; recover once with fresh context, expose stuck state and manual agent context reset.
+- Restore native Mistral preferences after each turn, including cancellation, without overwriting concurrent external edits; serialize room executions sharing the profile.
+- Retry bounded transient Windows file-sharing failures during atomic database replacement, preserving the existing database and writer lock.
+- Add opt-in diagnostic metadata logging and document the pre-fix reproduction and provider limitations.
+
+## 0.4.9
+
+- Apply Mistral native auto-approve mode when advertised, for both new and resumed ACP sessions in Total/read-write.
+- Route native permission requests through the Total command policy instead of incorrectly classifying every tool as irreversible. Shared MCP actions retain their own permission categories.
 
 ## 0.4.8
 

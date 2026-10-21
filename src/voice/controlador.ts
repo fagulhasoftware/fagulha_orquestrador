@@ -9,6 +9,8 @@ import type {
   ProgressoInstalacaoVoz,
   FaseAgente,
   PerguntaAgente,
+  PacoteAudioVoz,
+  ProvedorVozNuvem,
 } from '../shared/protocolo';
 import {
   carregarConfiguracao,
@@ -21,9 +23,9 @@ import {
 import { detectarVoz, type DetectadoVoz } from './deteccao';
 import { Gravador } from './gravador';
 import { transcrever, normalizarMencoes } from './transcritor';
-import { Leitor } from './leitor';
+import { textoParaLeitura } from './texto';
 import { InstaladorVoz } from './instalador';
-import { artefato, LICENCAS_PIPER, type ArtefatoVoz } from './catalogo';
+import { artefato, type ArtefatoVoz } from './catalogo';
 import type { FabricaProcesso } from './processo';
 import { VozNuvem } from './nuvem';
 import type { Segredos } from '../providers/tipos';
@@ -35,6 +37,7 @@ interface ServicoInstalacao {
   finalizar(): Promise<void>;
 }
 interface OpcoesVoz {
+  reproduzir?: (pacote: Omit<PacoteAudioVoz, 'id'>, sinal: AbortSignal) => Promise<void>;
   nuvem?: VozNuvem;
   segredos?: Segredos;
   carregar?: () => Promise<ConfiguracaoVoz | undefined>;
@@ -57,8 +60,13 @@ export class VozLocal {
   private pasta: string;
   private arquivoConfig: string;
   private gravador: Gravador;
-  private leitor: Leitor;
   private nuvem?: VozNuvem;
+  private controleAudio?: AbortController;
+  private avisosFallback = new Set<string>();
+  private catalogoNota?: string;
+  private vozesBrowser: { id: string; nome: string }[] = [];
+  private sistemaBrowser = true;
+  private modelosNuvem: { id: string; nome: string; vozes?: string[] }[] = [];
   private turnos = new TurnosVoz();
   private execucoes = new Set<string>();
   private instalador: ServicoInstalacao;
@@ -81,10 +89,6 @@ export class VozLocal {
     this.arquivoConfig = join(this.pasta, 'configuracao.json');
     this.gravador = new Gravador(join(this.pasta, 'temporarios'), opcoes.fabrica, opcoes.so);
     this.nuvem = opcoes.nuvem ?? (opcoes.segredos ? new VozNuvem(opcoes.segredos) : undefined);
-    this.leitor = new Leitor(join(this.pasta, 'temporarios'), opcoes.fabrica, opcoes.so, {
-      modelo: () => this.detectado?.vozPiper,
-      nuvem: this.nuvem,
-    });
     this.instalador = (opcoes.instalador ?? ((pasta, emitir) => new InstaladorVoz(pasta, emitir)))(
       this.pasta,
       (p) => this.progresso(p),
@@ -133,7 +137,23 @@ export class VozLocal {
     );
     this.detectado = d;
     const chaveConfigurada = (await this.nuvem?.configurada(this.config.leitura.provedor)) ?? false;
-    d.estado.leitura.nuvem = { provedor: this.config.leitura.provedor ?? null, chaveConfigurada };
+    d.estado.leitura.nuvem = {
+      provedor: this.config.leitura.provedor ?? null,
+      chaveConfigurada,
+      mascara: await this.nuvem?.mascara(this.config.leitura.provedor),
+      nota: this.catalogoNota,
+    };
+    d.estado.leitura.modelosNuvem = this.modelosNuvem;
+    if (this.opcoes.reproduzir) {
+      d.estado.leitura.motores = d.estado.leitura.motores.map((m) =>
+        m.id === 'sistema' ? { id: 'sistema', disponivel: this.sistemaBrowser } : m,
+      );
+      if (d.estado.leitura.motor === 'sistema') {
+        d.estado.leitura.disponivel = this.sistemaBrowser;
+        d.estado.leitura.vozes = this.vozesBrowser;
+        d.estado.leitura.motivo = undefined;
+      }
+    }
     d.estado.leitura.motores = d.estado.leitura.motores.map((m) =>
       m.id === 'nuvem'
         ? {
@@ -146,7 +166,7 @@ export class VozLocal {
         : m,
     );
     if (d.estado.leitura.motor === 'nuvem') {
-      d.estado.leitura.disponivel = chaveConfigurada;
+      d.estado.leitura.disponivel = chaveConfigurada || !!this.opcoes.reproduzir;
       d.estado.leitura.vozes = this.config.leitura.vozesNuvem;
       d.estado.leitura.motivo = chaveConfigurada
         ? undefined
@@ -184,6 +204,7 @@ export class VozLocal {
   async configurarLeitura(parcial: Partial<ConfiguracaoVoz['leitura']>): Promise<void> {
     if (
       parcial.motor &&
+      parcial.motor !== 'nuvem' &&
       !this.estado.leitura.motores.some((m) => m.id === parcial.motor && m.disponivel)
     )
       throw new Error(
@@ -196,6 +217,33 @@ export class VozLocal {
         texto:
           'Voz em nuvem ativada: o texto lido sera enviado ao provedor escolhido e pode gerar cobranca. As demais leituras permanecem locais.',
       });
+    if (parcial.provedor && parcial.provedor !== this.config.leitura.provedor) {
+      await this.pararLeitura();
+      this.modelosNuvem = [];
+      this.config.leitura = {
+        ...this.config.leitura,
+        provedor: parcial.provedor,
+        voz: undefined,
+        ttsModelo: undefined,
+        porAgente: {},
+        vozesNuvem: [],
+      };
+      await this.salvar({ leitura: this.config.leitura });
+      if (await this.nuvem?.configurada(parcial.provedor)) await this.atualizarVozes();
+      else await this.detectar();
+      return;
+    }
+    if (parcial.ttsModelo && !this.modelosNuvem.some((m) => m.id === parcial.ttsModelo))
+      throw Error('Modelo TTS nao anunciado pelo provedor.');
+    if (
+      parcial.porAgente &&
+      Object.entries(parcial.porAgente).some(
+        ([id, voz]) =>
+          !this.opcoes.agentes().some((a) => a.id === id) ||
+          (voz && !this.estado.leitura.vozes.some((v) => v.id === voz)),
+      )
+    )
+      throw Error('Agente ou voz desconhecido.');
     if (parcial.voz && !this.estado.leitura.vozes.some((v) => v.id === parcial.voz))
       throw new Error('Voz nativa desconhecida.');
     await this.pararLeitura();
@@ -215,25 +263,45 @@ export class VozLocal {
           : {}),
       },
     };
+    if (parcial.ttsModelo && this.config.leitura.provedor && this.nuvem) {
+      const c = await this.nuvem.catalogo(this.config.leitura.provedor);
+      const ids = c.modelos.find((m) => m.id === parcial.ttsModelo)?.vozes;
+      this.config.leitura.vozesNuvem = c.vozes.filter((v) => !ids || ids.includes(v.id));
+      if (!this.config.leitura.vozesNuvem.some((v) => v.id === this.config.leitura.voz))
+        this.config.leitura.voz = this.config.leitura.vozesNuvem[0]?.id;
+      this.config.leitura.porAgente = {};
+    }
     this.estado.leitura = { ...this.estado.leitura, ...this.config.leitura };
     await this.salvar({
-      leitura: { ...parcial, ...(parcial.motor ? { voz: this.config.leitura.voz } : {}) },
+      leitura: this.config.leitura,
     });
     await this.detectar();
   }
-  async chaveNuvem(provedor: 'openai' | 'elevenlabs', chave: string): Promise<void> {
+  async chaveNuvem(provedor: ProvedorVozNuvem, chave: string): Promise<void> {
     if (!this.nuvem) throw new Error('Armazenamento seguro indisponivel.');
-    const vozes = await this.nuvem.salvar(provedor, chave);
+    await this.pararLeitura();
+    let vozes = await this.nuvem.salvar(provedor, chave);
+    const catalogo = await this.nuvem.catalogo(provedor);
+    vozes = vozes.filter(
+      (v) => !catalogo.modelos[0]?.vozes || catalogo.modelos[0].vozes!.includes(v.id),
+    );
+    this.modelosNuvem = catalogo.modelos;
+    this.catalogoNota = catalogo.nota;
+    this.avisosFallback.clear();
     this.config.leitura = {
       ...this.config.leitura,
       provedor,
       vozesNuvem: vozes,
+      ttsModelo: catalogo.modelos[0]?.id,
+      porAgente: {},
       ...(this.config.leitura.motor === 'nuvem' ? { voz: vozes[0]?.id } : {}),
     };
     await this.salvar({
       leitura: {
         provedor,
         vozesNuvem: vozes,
+        ttsModelo: this.config.leitura.ttsModelo,
+        porAgente: {},
         ...(this.config.leitura.motor === 'nuvem' ? { voz: vozes[0]?.id } : {}),
       },
     });
@@ -245,9 +313,56 @@ export class VozLocal {
         'Chave de voz validada e salva com seguranca. Selecione o motor Nuvem para enviar o texto ao provedor.',
     });
   }
+  async atualizarVozes(): Promise<void> {
+    const p = this.config.leitura.provedor;
+    if (!p || !this.nuvem) throw Error('Selecione o provedor e configure a chave.');
+    const c = await this.nuvem.catalogo(p, true);
+    this.avisosFallback.clear();
+    this.modelosNuvem = c.modelos;
+    this.catalogoNota = c.nota;
+    const modelo = c.modelos.some((m) => m.id === this.config.leitura.ttsModelo)
+      ? this.config.leitura.ttsModelo
+      : c.modelos[0]?.id;
+    const permitidas = c.modelos.find((m) => m.id === modelo)?.vozes;
+    const vozes = c.vozes.filter((v) => !permitidas || permitidas.includes(v.id));
+    this.config.leitura = {
+      ...this.config.leitura,
+      ttsModelo: modelo,
+      vozesNuvem: vozes,
+      voz: vozes.some((v) => v.id === this.config.leitura.voz)
+        ? this.config.leitura.voz
+        : vozes[0]?.id,
+    };
+    await this.salvar({ leitura: this.config.leitura });
+    await this.detectar();
+  }
+  registrarVozesSistema(disponivel: boolean, vozes: { id: string; nome: string }[]): void {
+    this.sistemaBrowser = disponivel;
+    this.vozesBrowser = vozes;
+    if (this.opcoes.reproduzir && this.estado.leitura.motor === 'sistema') {
+      this.estado.leitura.disponivel = disponivel;
+      this.estado.leitura.vozes = vozes;
+      this.emitir();
+    }
+  }
+  async testarVoz(): Promise<void> {
+    this.avisosFallback.clear();
+    const a = this.opcoes.agentes()[0];
+    if (!a) throw Error('Nenhum participante para testar a voz.');
+    await this.pararLeitura();
+    await this.ler({
+      id: 'teste-voz',
+      sala: '',
+      autor: a.nick,
+      quando: new Date().toISOString(),
+      tipo: 'fala',
+      texto: 'Teste de voz do Orquestrador Fagulha. Um mais um e igual a dois.',
+    });
+  }
   async removerChaveNuvem(): Promise<void> {
     await this.pararLeitura();
-    await this.nuvem?.remover();
+    await this.nuvem?.remover(this.config.leitura.provedor);
+    this.modelosNuvem = [];
     this.config.leitura = {
       ...this.config.leitura,
       motor: 'sistema',
@@ -272,15 +387,14 @@ export class VozLocal {
     this.verificarLivre();
     if (this.instalando) throw new Error('Já existe uma instalação de voz em andamento.');
     const itens = [...new Set(componentes)].flatMap((c) => {
+      if (c === 'piper' || c === 'voz_neural')
+        throw new Error('Piper removido: use voz do sistema/webview ou nuvem.');
       if (
         ((this.opcoes.so ?? process.platform) !== 'win32' || process.arch !== 'x64') &&
-        c !== 'modelo' &&
-        c !== 'voz_neural'
+        c !== 'modelo'
       )
         throw new Error('Neste sistema, instale os executáveis pelo comando manual apresentado.');
-      return c === 'piper'
-        ? [...LICENCAS_PIPER, artefato(c, this.config.modelo)]
-        : [artefato(c, this.config.modelo)];
+      return [artefato(c, this.config.modelo)];
     });
     this.instalando = true;
     this.tarefaInstalacao = this.instalarComponentes(itens).finally(() => {
@@ -499,21 +613,69 @@ export class VozLocal {
       return;
     if (m.parcial || m.tipo !== 'fala' || !this.opcoes.agentes().some((a) => a.nick === m.autor))
       throw new Error('A leitura está disponível para falas finais dos agentes.');
-    const comando =
-      this.estado.leitura.motor === 'piper'
-        ? this.detectado?.piper
-        : this.estado.leitura.motor === 'nuvem'
-          ? 'nuvem'
-          : this.detectado?.tts;
-    if (!comando || !this.estado.leitura.disponivel)
-      throw new Error(this.estado.leitura.motivo ?? 'Leitura nativa indisponível.');
-    const geracao = this.geracaoLeitura;
+    if (!this.opcoes.reproduzir) throw new Error('Abra a sala para reproduzir audio pelo webview.');
+    await this.lerWebview(m);
+  }
+  private async lerWebview(m: Mensagem): Promise<void> {
+    const controle = new AbortController();
+    this.controleAudio?.abort();
+    this.controleAudio = controle;
+    const a = this.opcoes.agentes().find((a) => a.nick === m.autor),
+      l = structuredClone(this.config.leitura);
+    const voz = l.porAgente?.[a?.id ?? ''] || l.voz;
     this.estado.leitura.falando = m.id;
     this.emitir();
     try {
-      await this.leitor.ler(comando, m.texto, this.estado.leitura);
+      let restante = textoParaLeitura(m.texto, 100000);
+      while (restante && !controle.signal.aborted) {
+        let fim = Math.min(1500, restante.length);
+        if (fim < restante.length) {
+          const espaco = restante.lastIndexOf(' ', fim);
+          if (espaco > 1000) fim = espaco;
+        }
+        const texto = restante.slice(0, fim);
+        restante = restante.slice(fim).trimStart();
+        let audio: { base64: string; mime: 'audio/wav' | 'audio/mpeg' } | undefined;
+        if (l.motor === 'nuvem' && l.provedor && !this.avisosFallback.has(l.provedor)) {
+          try {
+            const gerado = await this.nuvem!.audio(
+              l.provedor,
+              texto,
+              { voz, modelo: l.ttsModelo },
+              controle.signal,
+            );
+            audio = { base64: gerado.dados.toString('base64'), mime: gerado.mime };
+          } catch (e) {
+            if (controle.signal.aborted) return;
+            if (!this.avisosFallback.has(l.provedor)) {
+              this.avisosFallback.add(l.provedor);
+              this.opcoes.emitir({
+                tipo: 'aviso',
+                nivel: 'alerta',
+                texto:
+                  e instanceof Error && e.message.includes('missing_permissions')
+                    ? 'Chave de voz sem permissao text_to_speech. Usando a voz do sistema.'
+                    : 'Provedor de voz indisponivel (chave, cota ou rede). Usando a voz do sistema.',
+              });
+            }
+          }
+        }
+        if (!controle.signal.aborted)
+          await this.opcoes.reproduzir!(
+            {
+              texto,
+              velocidade: l.velocidade,
+              voz: l.motor === 'sistema' ? voz : undefined,
+              ...audio,
+            },
+            controle.signal,
+          );
+      }
+    } catch (e) {
+      if (!controle.signal.aborted) throw e;
     } finally {
-      if (geracao === this.geracaoLeitura && this.estado.leitura.falando === m.id) {
+      if (this.controleAudio === controle) {
+        this.controleAudio = undefined;
         this.estado.leitura.falando = undefined;
         this.emitir();
       }
@@ -521,7 +683,7 @@ export class VozLocal {
   }
   async pararLeitura(): Promise<void> {
     this.geracaoLeitura++;
-    await this.leitor.parar();
+    this.controleAudio?.abort();
     this.estado.leitura.falando = undefined;
     this.emitir();
   }

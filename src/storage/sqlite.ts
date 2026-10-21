@@ -23,6 +23,27 @@ export const tabelas = [
   'perguntas',
 ] as const;
 export type Tabela = (typeof tabelas)[number];
+export async function substituirAtomico(
+  origem: string,
+  destino: string,
+  renomear = rename,
+): Promise<void> {
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      await renomear(origem, destino);
+      return;
+    } catch (e) {
+      if (
+        tentativa >= 5 ||
+        !['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '')
+      )
+        throw e;
+      // Compartilhamento/antivirus no Windows pode segurar o arquivo brevemente.
+      // Preserva o destino e o lock; nunca apaga o banco para conseguir renomear.
+      await new Promise((r) => setTimeout(r, 20 * (tentativa + 1)));
+    }
+  }
+}
 export class Armazenamento {
   private sql!: SqlJsStatic;
   private serial: Promise<unknown> = Promise.resolve();
@@ -103,7 +124,7 @@ export class Armazenamento {
         const valor = fn(db);
         db.run('COMMIT');
         await writeFile(tmp, db.export(), { mode: 0o600 });
-        await rename(tmp, this.arquivo);
+        await substituirAtomico(tmp, this.arquivo);
         return valor;
       } finally {
         db?.close();
@@ -127,6 +148,20 @@ export class Armazenamento {
         ],
       ),
     );
+  }
+  async proximaSequencia(chat: string): Promise<number> {
+    return this.transacao((db) => {
+      const anterior = db.exec(
+        "SELECT dados FROM sessoes_provedor WHERE sala=? AND id='__sequencia'",
+        [chat],
+      )[0]?.values[0]?.[0];
+      const seq = anterior ? Number(JSON.parse(String(anterior))) + 1 : 1;
+      db.run(
+        "INSERT INTO sessoes_provedor (id,sala,quando,dados,chat) VALUES ('__sequencia',?,?,?,?) ON CONFLICT(sala,id) DO UPDATE SET dados=excluded.dados",
+        [chat, new Date().toISOString(), JSON.stringify(seq), chat],
+      );
+      return seq;
+    });
   }
   async criarChat(chat: ChatPersistido): Promise<void> {
     await this.gravar('chats', '', chat.id, chat);
@@ -229,8 +264,8 @@ export class Armazenamento {
       const quando = new Date().toISOString();
       for (const tabela of mensagem.tipo === 'acao' ? ['mensagens', 'acoes'] : ['mensagens'])
         db.run(
-          `INSERT INTO ${tabela} (id,sala,quando,dados,chat) VALUES (?,?,?,?,?) ON CONFLICT(sala,id) DO UPDATE SET quando=excluded.quando,dados=excluded.dados`,
-          [mensagem.id, chatId, quando, JSON.stringify(mensagem), chatId],
+          `INSERT INTO ${tabela} (id,sala,quando,dados,chat) VALUES (?,?,?,?,?) ON CONFLICT(sala,id) DO UPDATE SET dados=excluded.dados`,
+          [mensagem.id, chatId, mensagem.quando, JSON.stringify(mensagem), chatId],
         );
       if (usuario) {
         if (!chat.usuarios.includes(mensagem.autor)) chat.usuarios.push(mensagem.autor);
@@ -303,7 +338,7 @@ export class Armazenamento {
     const db = await this.carregar();
     try {
       const stmt = db.prepare(
-        `SELECT dados FROM ${tabela}${sala !== undefined ? ' WHERE sala=?' : ''} ORDER BY quando,id`,
+        `SELECT dados FROM ${tabela}${sala !== undefined ? ' WHERE sala=?' : ''} ORDER BY quando,${tabela === 'mensagens' ? 'rowid' : 'id'}`,
       );
       try {
         if (sala !== undefined) stmt.bind([sala]);

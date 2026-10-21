@@ -47,9 +47,10 @@ export async function extrairBinarios(
   componente: string,
   sinal?: AbortSignal,
 ): Promise<void> {
+  if (componente !== 'ffmpeg' && componente !== 'whisper')
+    throw new Error('Componente de ditado invalido.');
   const zip = await Open.file(arquivo);
-  if (zip.files.length > (componente === 'piper' ? 600 : 300))
-    throw new Error('ZIP de voz excede o limite de arquivos.');
+  if (zip.files.length > 300) throw new Error('ZIP de voz excede o limite de arquivos.');
   const nomes = new Set<string>();
   const selecionados = [];
   let totalExtraido = 0;
@@ -68,15 +69,11 @@ export async function extrairBinarios(
     const permitido =
       componente === 'ffmpeg'
         ? /(?:^|\/)bin\/ffmpeg\.exe$/i.test(caminho)
-        : componente === 'piper'
-          ? /^piper\/(?:piper\.exe|espeak-ng\.dll|piper_phonemize\.dll|onnxruntime\.dll|onnxruntime_providers_shared\.dll|espeak-ng-data\/[a-zA-Z0-9_./-]+|LICENSE[^/]*|COPYING[^/]*)$/i.test(
-              caminho,
-            )
-          : /^Release\/(?:whisper-cli\.exe|whisper\.dll|ggml\.dll|ggml-base\.dll|ggml-cpu-(?:alderlake|cannonlake|cascadelake|haswell|icelake|sandybridge|skylakex|sse42|x64)\.dll)$/i.test(
-              caminho,
-            );
+        : /^Release\/(?:whisper-cli\.exe|whisper\.dll|ggml\.dll|ggml-base\.dll|ggml-cpu-(?:alderlake|cannonlake|cascadelake|haswell|icelake|sandybridge|skylakex|sse42|x64)\.dll)$/i.test(
+            caminho,
+          );
     if (!permitido || f.type !== 'File') continue;
-    const relativo = componente === 'piper' ? caminho.replace(/^piper\//, '') : nome;
+    const relativo = nome;
     if (nomes.has(relativo.toLowerCase()) || f.uncompressedSize > 200 * 1024 * 1024)
       throw new Error('ZIP de voz inválido ou grande demais.');
     nomes.add(relativo.toLowerCase());
@@ -85,12 +82,7 @@ export async function extrairBinarios(
       throw new Error('ZIP excede o limite total de extracao.');
     selecionados.push(f);
   }
-  const executavel =
-    componente === 'ffmpeg'
-      ? 'ffmpeg.exe'
-      : componente === 'piper'
-        ? 'piper.exe'
-        : 'whisper-cli.exe';
+  const executavel = componente === 'ffmpeg' ? 'ffmpeg.exe' : 'whisper-cli.exe';
   if (!nomes.has(executavel)) throw new Error('Executável de voz ausente no ZIP.');
   await mkdir(destino, { recursive: true, mode: 0o700 });
   for (const f of selecionados) {
@@ -105,12 +97,7 @@ export async function extrairBinarios(
         );
       },
     });
-    const destinoArquivo = join(
-      destino,
-      componente === 'piper'
-        ? f.path.replaceAll('\\', '/').replace(/^piper\//, '')
-        : basename(f.path),
-    );
+    const destinoArquivo = join(destino, basename(f.path));
     await mkdir(dirname(destinoArquivo), { recursive: true, mode: 0o700 });
     await pipeline(
       f.stream(),
@@ -137,6 +124,8 @@ export class InstaladorVoz {
     await this.tarefa;
   }
   instalar(itens: ArtefatoVoz[]): Promise<void> {
+    if (itens.some((i) => !['ffmpeg', 'whisper', 'modelo'].includes(i.componente)))
+      throw new Error('Componente removido.');
     if (this.tarefa) throw new Error('Já existe uma instalação de voz em andamento.');
     const controle = new AbortController();
     this.controle = controle;
@@ -264,15 +253,6 @@ export class InstaladorVoz {
       try {
         await extrairBinarios(parcial, temporario, item.componente, sinal);
         const bin = join(this.pasta, 'bin');
-        if (item.componente === 'piper') {
-          // Runtime isolado: DLLs do Piper nao colidem com outros componentes.
-          await mkdir(bin, { recursive: true, mode: 0o700 });
-          const destino = join(bin, 'piper');
-          await rm(destino, { recursive: true, force: true });
-          await rename(temporario, destino);
-          await rm(parcial, { force: true });
-          return;
-        }
         await mkdir(bin, { recursive: true, mode: 0o700 });
         // Publica DLLs antes do executável que a detecção procura.
         for (const nome of (await readdir(temporario)).sort(

@@ -4,7 +4,7 @@ import type { ConfiguracaoVoz } from '../voice/configuracao';
 export interface ConfigGlobal {
   configuracao?: Configuracao;
   primeiraExecucao: boolean;
-  agentes: Record<string, Pick<Agente, 'habilitado' | 'papel' | 'modo'>>;
+  agentes: Record<string, Pick<Agente, 'habilitado' | 'papel' | 'modo' | 'modelo' | 'esforco'>>;
   voz?: ConfiguracaoVoz;
   revisao: string;
 }

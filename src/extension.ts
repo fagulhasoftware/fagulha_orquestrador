@@ -34,6 +34,7 @@ import {
   importarContexto,
   type CandidatoContexto,
 } from './context-import/importador';
+import { PonteAudio } from './voice/ponte-audio';
 import { VozLocal } from './voice/voz';
 import { validarUrl } from './browser/pagina';
 import type { DoHost, Agente, Mensagem, Configuracao } from './shared/protocolo';
@@ -60,10 +61,16 @@ export async function activate(
   );
   await storage.iniciar({ sala: id, projeto, titulo: projeto ? basename(projeto) : 'Sala avulsa' });
   const sala = new Sala(id, projeto, projeto ? basename(projeto) : 'Sala avulsa', storage);
+  const diagnostico = vscode.window.createOutputChannel('Orquestrador Fagulha - Diagnostico');
+  context.subscriptions.push(diagnostico);
+  sala.diagnostico = registro => { if (vscode.workspace.getConfiguration('fagulha').get('diagnosticoContexto', false)) diagnostico.appendLine(JSON.stringify(registro)); };
   const cfg = () => vscode.workspace.getConfiguration('fagulha');
+  sala.atividadesExpandidas=cfg().get('atividadesExpandidas',false);
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e=>{if(e.affectsConfiguration('fagulha.atividadesExpandidas')){sala.atividadesExpandidas=cfg().get('atividadesExpandidas',false);sala.estadoCompleto();}}));
   const opcoes = (id: string): OpcoesProvedor => {
     const original = cfg().get<Record<string, OpcoesProvedor>>('provedores', {})[id] ?? {};
     return {
+      modelos: original.modelos ?? [],
       modelo:
         cfg()
           .get<string>(`provedores.${id}.modelo`, original.modelo ?? '')
@@ -104,6 +111,7 @@ export async function activate(
         opcoes(id).comando,
         join(pasta, 'cli', sala.id, id),
         context.secrets,
+        () => opcoes(id),
       ),
     );
   for (const id of [
@@ -118,7 +126,7 @@ export async function activate(
   for (const id of ['mistral-vibe', 'mistral-enterprise'] as const)
     registrar(new ProvedorMistral(id, join(pasta, 'contas', id), context.secrets, () => opcoes(id), async (titulo, sinal) => {
       try {
-        return await sala.portao.executar({ agente: id, modo: 'leitura_escrita', categoria: 'irreversivel_externo', resumo: titulo, detalhe: 'Permissao nativa ACP solicitada pelo Mistral; autorizacao vale apenas para esta chamada.' }, async () => true, sinal);
+        return await sala.portao.executar({ agente: id, modo: 'leitura_escrita', categoria: 'comando', resumo: titulo, detalhe: 'Ferramenta nativa ACP do Mistral em acesso Total; autorizacao vale apenas para esta chamada.' }, async () => true, sinal);
       } catch { return false; }
     }));
   // Manifests sao codigo executavel: carregar somente apos confianca no workspace.
@@ -128,7 +136,11 @@ export async function activate(
         criarProvedorManifesto(m, context.secrets, terminal, pedirChave, () => opcoes(m.id)),
       );
   await sala.iniciar();
+  const views = new Set<vscode.Webview>();
+  let telaAudio:vscode.Webview|undefined;
+  const ponteAudio=new PonteAudio(()=>telaAudio??[...views].at(-1));
   const voz = new VozLocal({
+    reproduzir:(pacote,sinal)=>ponteAudio.reproduzir(pacote,sinal),
     segredos: context.secrets,
     carregar: async () =>
       (await storage.obter<import('./storage/global').ConfigGlobal>('globais', '', 'configuracao'))
@@ -149,7 +161,6 @@ export async function activate(
     if (!(await vscode.env.openExternal(vscode.Uri.parse(validarUrl(url).href))))
       throw new Error('Nao foi possivel abrir navegador.');
   };
-  const views = new Set<vscode.Webview>();
   const skills = new Skills(
     join(pasta, 'skills'),
     [
@@ -452,6 +463,7 @@ export async function activate(
           for (const [k, v] of Object.entries(entrada.valores))
             if (/token|secret|password/i.test(k) && typeof v === 'string') protegerSegredo(v);
         const m = validarMensagem(entrada);
+        if(m.tipo==='lerMensagem'||m.tipo==='leituraTestar'||m.tipo==='pronto')telaAudio=webview;
         if (m.tipo === 'pronto') {
           await sala.sincronizar();
           await webview.postMessage({ tipo: 'estado', estado: sala.estado() } satisfies DoHost);
@@ -487,6 +499,11 @@ export async function activate(
             'cancelarPergunta',
             'leituraNuvemChave',
             'leituraNuvemRemover',
+            'leituraVozesAtualizar',
+            'leituraTestar',
+            'vozAudioEstado',
+            'vozAudioFalha',
+            'vozesSistema',
             'loginCancelar',
             'responderAprovacao',
             'carregarAnteriores',
@@ -757,8 +774,14 @@ export async function activate(
           case 'agentePapel':
             await sala.atualizarAgente(m.id, { papel: m.papel });
             break;
+          case 'agenteModelos':
+            await sala.atualizarModelos(m.id);
+            break;
+          case 'agenteModelo':
+            await sala.selecionarModelo(m.id, m.modelo, m.esforco);
+            break;
           case 'agenteNovaSessao':
-            await sala.novaSessao(m.id);
+            await sala.reiniciarContexto(m.id);
             break;
           case 'agenteConfigurar':
             if (!sala.provedores.has(m.id)) throw new Error('Agente desconhecido.');
@@ -855,6 +878,27 @@ export async function activate(
             await voz.configurar(parcial);
             break;
           }
+          case 'leituraNuvemChave':
+            await voz.chaveNuvem(m.provedor,m.chave);
+            break;
+          case 'leituraNuvemRemover':
+            await voz.removerChaveNuvem();
+            break;
+          case 'leituraVozesAtualizar':
+            await voz.atualizarVozes();
+            break;
+          case 'leituraTestar':
+            await voz.testarVoz();
+            break;
+          case 'vozAudioEstado':
+            ponteAudio.responder(webview,m.id,m.estado);
+            break;
+          case 'vozAudioFalha':
+            sala.emitir({tipo:'aviso',nivel:'alerta',texto:'Audio neural nao foi aceito pelo webview. Usando a voz do sistema.'});
+            break;
+          case 'vozesSistema':
+            voz.registrarVozesSistema(m.disponivel,m.vozes);
+            break;
           case 'leituraConfigurar': {
             const { tipo, ...parcial } = m;
             await voz.configurarLeitura(parcial);
@@ -892,6 +936,8 @@ export async function activate(
       }
     });
     const disposal = descartado(() => {
+      ponteAudio.fechar(webview);
+      if(telaAudio===webview)telaAudio=undefined;
       views.delete(webview);
       void vscode.commands.executeCommand('setContext', 'fagulha.painelAberto', views.size > 0);
       listener.dispose();
@@ -932,6 +978,7 @@ export async function activate(
     }),
   );
   encerrar = async () => {
+    ponteAudio.fechar();
     clearInterval(sincronizacao);
     await voz.finalizar();
     await login.finalizar();

@@ -54,6 +54,8 @@ const schemas = [
     'exportarConversa',
     'novoChat',
     'listarMemorias',
+    'leituraVozesAtualizar',
+    'leituraTestar',
   ].map(vazio),
   z.object({ tipo: z.literal('listarChats'), busca: z.string().max(500).optional() }).strict(),
   ...['abrirChat', 'excluirChat', 'exportarChat', 'excluirMemoria'].map((tipo) =>
@@ -76,7 +78,7 @@ const schemas = [
     .object({
       tipo: z.literal('vozInstalar'),
       componentes: z
-        .array(z.enum(['ffmpeg', 'whisper', 'modelo', 'piper', 'voz_neural']))
+        .array(z.enum(['ffmpeg', 'whisper', 'modelo']))
         .min(1)
         .max(5),
     })
@@ -96,19 +98,25 @@ const schemas = [
       ativa: z.boolean().optional(),
       voz: z.string().max(200).optional(),
       velocidade: z.number().min(0.5).max(2).optional(),
-      motor: z.enum(['sistema', 'piper', 'nuvem']).optional(),
+      motor: z.enum(['sistema', 'nuvem']).optional(),
       variacao: z.number().min(0).max(1).optional(),
+      provedor:z.enum(['openai','elevenlabs','gemini']).optional(),
+      ttsModelo:z.string().max(200).optional(),
+      porAgente:z.record(z.string().max(200)).refine(v=>Object.keys(v).length<=100).optional(),
     })
     .strict(),
   z.object({ tipo: z.literal('lerMensagem'), id }).strict(),
   z
     .object({
       tipo: z.literal('leituraNuvemChave'),
-      provedor: z.enum(['openai', 'elevenlabs']),
+      provedor: z.enum(['openai', 'elevenlabs', 'gemini']),
       chave: z.string().max(4096),
     })
     .strict(),
   vazio('leituraNuvemRemover'),
+  z.object({tipo:z.literal('vozAudioEstado'),id,estado:z.enum(['concluido','erro','cancelado'])}).strict(),
+  z.object({tipo:z.literal('vozAudioFalha'),motivo:z.string().max(200)}).strict(),
+  z.object({tipo:z.literal('vozesSistema'),disponivel:z.boolean(),vozes:z.array(z.object({id:z.string().max(200),nome:z.string().max(200)}).strict()).max(200)}).strict(),
   z.object({ tipo: z.literal('cancelarPergunta'), id }).strict(),
   z
     .object({
@@ -176,6 +184,15 @@ const schemas = [
     .strict(),
   z.object({ tipo: z.literal('agenteHabilitar'), id, habilitado: z.boolean() }).strict(),
   z.object({ tipo: z.literal('agenteModo'), id, modo }).strict(),
+  z.object({ tipo: z.literal('agenteModelos'), id }).strict(),
+  z
+    .object({
+      tipo: z.literal('agenteModelo'),
+      id,
+      modelo: z.string().max(200),
+      esforco: z.string().max(40).optional(),
+    })
+    .strict(),
   z.object({ tipo: z.literal('agenteConfigurar'), id }).strict(),
   z.object({ tipo: z.literal('agentePapel'), id, papel: texto }).strict(),
   z
@@ -185,7 +202,7 @@ const schemas = [
         .object({
           nick: z.string().min(1).max(80).optional(),
           topico: texto.optional(),
-          passagensAutomaticas: z.number().int().min(0).max(30).optional(),
+          passagensAutomaticas: z.number().int().min(0).max(50).optional(),
           timeoutMinutos: z.number().min(1).max(120).optional(),
           limites: z
             .object({

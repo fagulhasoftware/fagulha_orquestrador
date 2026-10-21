@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Provedor, PedidoExecucao, EventosProvedor, Deteccao } from './tipos';
 import { agentePadrao, type Segredos } from './tipos';
 import { rodar } from './processo';
+import { catalogoConfigurado, modelosCodex, modelosAntigravity, type ConfigModelos } from './modelos';
 import { ambienteConta, argsConta } from './autenticacao';
 import type { EstadoLogin, ModoAgente, NivelPermissao } from '../shared/protocolo';
 import { mascarar, protegerSegredo } from '../core/seguranca';
@@ -218,6 +219,8 @@ function resumo(v: unknown): string {
     .slice(0, 400);
 }
 export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
+  if (typeof j.model === 'string') ev.modelo?.(j.model);
+  if (typeof j.init?.model === 'string') ev.modelo?.(j.init.model);
   if (id === 'antigravity') {
     if (j.event === 'init')
       ev.sistema?.(
@@ -242,9 +245,9 @@ export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
           ev.sistema?.(`Antigravity ferramenta falhou: ${resumo(step.tool_info.error)}`);
       }
     }
-    if (j.event === 'result' && (j.result?.status === 'ERROR' || j.status === 'ERROR' || j.error))
+    if (j.event === 'result' && ((j.result?.status && j.result.status !== 'SUCCESS') || j.status === 'ERROR' || j.error))
       ev.erro(
-        mascarar(String(j.error?.message ?? j.result?.error ?? j.error ?? 'Falha Antigravity')),
+        mascarar(String(j.error?.message ?? j.result?.error?.message ?? j.result?.error ?? j.result?.message ?? j.error ?? j.result?.status ?? 'Falha Antigravity')),
       );
     return;
   }
@@ -294,7 +297,14 @@ export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
       if (it.type === 'agent_message') ev.fala(it.text ?? '');
       else if (it.type === 'file_change') ev.acao(`altera ${resumo(it.changes)}`);
       else if (it.type === 'command_execution') ev.acao(`terminou (saida ${it.exit_code})`);
-      else if (it.type === 'error') ev.erro(it.message ?? 'Falha');
+      else if (it.type === 'error') {
+        const mensagem = it.message ?? 'Falha';
+        // Estes eventos informam recuperacao do transporte, nao falha do turno.
+        // turn.failed/error (ou saida nao zero) continuam sendo erros fatais.
+        if (/^(?:Reconnecting\.\.\. \d+\/\d+ \(|Falling back from WebSockets to HTTPS transport\.)/.test(mensagem))
+          (ev.sistema ?? ev.acao)(mensagem);
+        else ev.erro(mensagem);
+      }
     }
     if (j.type === 'turn.failed' || j.type === 'error')
       ev.erro(j.error?.message ?? j.message ?? 'Falha');
@@ -306,6 +316,12 @@ export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
       ev.erro(j.error?.message ?? j.message ?? 'Falha');
   }
 }
+export function argumentosModelo(id: CliId, modelo?: string, esforco?: string): string[] {
+  const args = modelo ? ['--model', modelo] : [];
+  if (esforco && id === 'codex') args.push('-c', `model_reasoning_effort=${tomlString(esforco)}`);
+  else if (esforco && (id === 'claude' || id === 'antigravity')) args.push('--effort', esforco);
+  return args;
+}
 export class ProvedorCli implements Provedor {
   agente;
   autenticacao?: ConfigLogin;
@@ -316,6 +332,7 @@ export class ProvedorCli implements Provedor {
     private configurado?: string,
     private isolamento?: string,
     private segredos?: Segredos,
+    private opcoesModelos: () => ConfigModelos = () => ({}),
   ) {
     this.agente = agentePadrao(
       id,
@@ -354,6 +371,22 @@ export class ProvedorCli implements Provedor {
           });
         },
       };
+  }
+  async listarModelos() {
+    const config = catalogoConfigurado(this.opcoesModelos());
+    if (this.id === 'gemini') config.modelos = config.modelos.map(({id,nome}) => ({id,nome}));
+    try {
+      if (this.id === 'codex') {
+        const catalogo = await modelosCodex();
+        if (catalogo.modelos.length) return catalogo;
+      }
+      if (this.id === 'antigravity' && this.bin) {
+        const texto = await rodar(this.bin.cmd, [...this.bin.prefixo, 'models'], { timeoutMs: 15000, env: await this.ambiente() });
+        const modelos = modelosAntigravity(texto).map(m => ({...m, esforcos: config.modelos.find(c => c.id === m.id)?.esforcos?.filter(e => ['low','medium','high','xhigh','max'].includes(e))}));
+        if (modelos.length) return { modelos, origem: 'runtime' as const, detalhe: 'agy models; disponibilidade confirmada apenas ao executar.' };
+      }
+    } catch { /* lista configurada e alternativa explicita, sem nomes inventados */ }
+    return config;
   }
   async detectar(): Promise<Deteccao> {
     this.bin = await localizar(this.id, this.configurado);
@@ -684,6 +717,9 @@ export class ProvedorCli implements Provedor {
         process.execPath,
         herdados,
       );
+      const selecao = argumentosModelo(this.id, p.modelo, p.esforco);
+      if (this.id === 'codex') args.splice(args.length - 1, 0, ...selecao);
+      else args.push(...selecao);
       if (this.id === 'antigravity')
         args.push('--add-dir', p.projeto, '--add-dir', p.ponte.diretorio);
       if (this.id === 'codex' && p.nivel !== 'manual')

@@ -21,6 +21,9 @@ import {
   especialistas,
 } from './integracoes';
 import { comandosSala, termoComposer } from '../core/comandos';
+import { agruparAtividades } from '../core/atividades';
+import { reproduzirVoz, pararAudio, vozesSistema } from './audio';
+import { componenteAtividades, atualizarTemposAtividades } from './atividades';
 import { iconeAplicativo } from './app-icon';
 const traduzir = t;
 
@@ -65,7 +68,7 @@ const CATEGORIAS: Record<string, string> = {
   externo: t('External system'), publicacao: t('Publish or send'), credencial: t('Use credential'), destrutiva: t('Destructive action'), memoria: t('Save to memory'),
 };
 const LOGIN: Record<string, string> = { conectado: t('connected'), chave_configurada: t('key configured'), desconectado: t('disconnected'), desconhecido: t('unknown sign-in') };
-const ESTADOS: Record<string, string> = { livre: t('idle'), na_fila: t('queued'), trabalhando: t('working'), desabilitado: t('disabled'), erro: t('error') };
+const ESTADOS: Record<string, string> = { livre: t('idle'), na_fila: t('queued'), trabalhando: t('working'), desabilitado: t('disabled'), erro: t('error'), travado: 'travado' };
 
 // ---------- estrutura fixa ----------
 const cabecalho = h('header', { class: 'cab' });
@@ -107,13 +110,13 @@ function chipAgente(a: Agente): HTMLElement {
     class: `chip ag c-${a.cor} e-${a.habilitado && a.instalado ? a.estado : 'desabilitado'}`, type: 'button',
     title: `${a.nick}: ${desc}${a.papel ? `\n${t('Role')}: ${a.papel}` : ''}\n${t('Click to mention')}`,
     onclick: () => mencionar(a.nick),
-  }, h('span', { class: 'ponto' }), a.nick, a.login === 'desconectado' ? h('span', { class: 'alerta' }, '!') : null);
+  }, h('span', { class: 'ponto' }), a.nick, h('span', { class: 'modelo-ativo' }, a.modeloAtivo ?? 'Padrao / Auto'), a.login === 'desconectado' ? h('span', { class: 'alerta' }, '!') : null);
 }
 function renderFaixa(): void {
   if (!E) return;
   const ativos = E.agentes.filter((a) => a.instalado && a.habilitado);
   faixa.replaceChildren(
-    ...ativos.map(chipAgente),
+    ...ativos.map(a => h('div', { class: 'agente-picker' }, chipAgente(a), pickerModelo(a))),
     ...(ativos.length ? [] : [h('span', { class: 'vazio' }, t('No agents enabled.'))]),
     h('button', { class: 'chip mais', type: 'button', title: t('Manage agents'), onclick: () => irPara('agentes') }, icone('mais')),
   );
@@ -163,7 +166,7 @@ function elMensagem(m: Mensagem): HTMLElement {
   if (m.tipo === 'fala') {
     const anexos = m.anexos ?? [];
     el = h('article', { class: `msg fala ${ag ? `c-${ag.cor}` : 'usuario'} ${m.parcial ? 'parcial' : ''}` },
-      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), h('time', { datetime: m.quando }, hora(m.quando)), ag ? botaoOuvir(m) : null),
+      h('div', { class: 'msg-topo' }, h('span', { class: 'autor' }, m.autor), ag ? h('span', { class: 'modelo-ativo' }, m.modelo ?? ag.modeloAtivo ?? 'Padrao / Auto') : null, h('time', { datetime: m.quando }, hora(m.quando)), ag ? botaoOuvir(m) : null),
       renderMarkdown(m.texto),
       anexos.length ? h('div', { class: 'msg-anexos' }, ...anexos.map((a) => h('span', { class: `chip anexo-mini t-${a.tipo}` }, icone('clipe'), a.nome))) : null);
   } else if (m.tipo === 'acao') {
@@ -184,36 +187,7 @@ function renderMensagens(): void {
     filhos.push(h('button', { class: 'btn fantasma anteriores', type: 'button', onclick: () => enviar({ tipo: 'carregarAnteriores', antesDe: E!.mensagens[0].id }) }, t('Load earlier messages')));
   }
   const ms = E.mensagens;
-  for (let i = 0; i < ms.length; i++) {
-    if (ms[i].tipo === 'acao') {
-      let j = i;
-      while (j + 1 < ms.length && ms[j + 1].tipo === 'acao' && ms[j + 1].autor === ms[i].autor) j++;
-      const grupo = ms.slice(i, j + 1);
-      {
-        const id = ms[i].id;
-        const ultima = grupo.at(-1)!;
-        const resumo = ultima.texto.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim().slice(0, 180);
-        const det = h('details', { class: 'grupo-acoes' },
-          h('summary', { title: t('Click or press Enter to show or hide execution details') },
-            h('time', { datetime: ultima.quando }, hora(ultima.quando)),
-            h('span', { class: 'execucao-autor' }, ms[i].autor),
-            h('span', { class: 'execucao-contagem' }, grupo.length === 1 ? t('1 action') : t('{n} actions', { n: grupo.length })),
-            h('span', { class: 'ultima' }, resumo)),
-          h('div', { class: 'execucao-detalhes' }, ...grupo.map(elMensagem)));
-        det.open = execucoesAbertas.has(id);
-        det.addEventListener('toggle', () => {
-          // Eventos enfileirados de elementos substituidos nao alteram o estado.
-          if (!det.isConnected) return;
-          if (det.open) execucoesAbertas.add(id);
-          else execucoesAbertas.delete(id);
-        });
-        filhos.push(det);
-        i = j;
-        continue;
-      }
-    }
-    filhos.push(elMensagem(ms[i]));
-  }
+  for(const bloco of agruparAtividades(ms,E.turnos)) filhos.push(bloco.tipo==='atividades'?componenteAtividades(bloco,E.atividadesExpandidas??false):elMensagem(bloco.mensagem));
   if (!E.chat.desteProjeto) {
     filhos.unshift(h('div', { class: 'aviso-chat', role: 'note' },
       t('This chat was created in {origin}. Agents work in the folder of this window ({folder}).', { origin: E.chat.projetoNome ?? t('a window without a project'), folder: E.sala.titulo })));
@@ -259,7 +233,7 @@ function renderFases(): void {
   const linhas: HTMLElement[] = [];
   for (const a of E.agentes) {
     const f = a.fase;
-    if (!f || !a.habilitado) continue;
+    if (!f || !a.habilitado || !['erro','aguardando_aprovacao','aguardando_resposta'].includes(f.tipo)) continue;
     if (FINAIS.has(f.tipo)) {
       if (!finalVistoEm.has(a.id + f.desde)) finalVistoEm.set(a.id + f.desde, agora);
       if (agora - finalVistoEm.get(a.id + f.desde)! > 12000) continue;   // sinal final visivel por 12 s
@@ -283,6 +257,7 @@ function renderFases(): void {
   atualizarTempos();
 }
 function atualizarTempos(): void {
+  atualizarTemposAtividades();
   for (const el of Array.from(faixaFases.querySelectorAll<HTMLElement>('.fase-tempo'))) {
     const ms = Date.now() - Date.parse(el.dataset.desde ?? '');
     el.textContent = Number.isFinite(ms) ? ` · ${duracaoTexto(ms)}` : '';
@@ -390,37 +365,29 @@ function renderPerguntas(): void {
 // ---------- motor de leitura (v5) ----------
 const chaveNuvem = h('input', { class: 'campo', type: 'password', autocomplete: 'off', placeholder: t('Paste the key here'), 'aria-label': t('Voice provider key') });
 function blocoMotorLeitura(v: EstadoVoz): HTMLElement {
-  const l = v.leitura;
-  const NOMES: Record<MotorLeitura, string> = { sistema: t('System voice'), piper: t('Local neural (Piper) — natural, offline'), nuvem: t('Cloud (OpenAI or ElevenLabs) — more expressive') };
-  const motor = h('select', { class: 'campo', 'aria-label': t('Voice engine') },
-    ...l.motores.map((m) => h('option', { value: m.id, selected: m.id === l.motor, disabled: !m.disponivel }, `${NOMES[m.id]}${m.disponivel ? '' : ` (${m.motivo ?? t('unavailable')})`}`)));
-  motor.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', motor: motor.value as MotorLeitura }));
-  const variacao = h('input', { type: 'range', min: 0, max: 1, step: 0.1, value: l.variacao, 'aria-label': t('Intonation variation') });
-  variacao.addEventListener('change', () => enviar({ tipo: 'leituraConfigurar', variacao: Number(variacao.value) }));
-  const provedor = h('select', { class: 'campo', 'aria-label': t('Cloud voice provider') },
-    h('option', { value: 'openai', selected: l.nuvem.provedor !== 'elevenlabs' }, 'OpenAI'),
-    h('option', { value: 'elevenlabs', selected: l.nuvem.provedor === 'elevenlabs' }, 'ElevenLabs'));
-  const salvarChave = h('button', { class: 'btn pequeno primario', type: 'button' }, t('Validate and save'));
-  salvarChave.addEventListener('click', () => {
-    const chave = chaveNuvem.value.trim();
-    if (chave.length < 8) return;
-    chaveNuvem.value = '';
-    enviar({ tipo: 'leituraNuvemChave', provedor: provedor.value as 'openai' | 'elevenlabs', chave });
-  });
-  return h('div', { class: 'pilha' },
-    h('label', { class: 'rotulo' }, t('Voice engine'), motor),
-    l.motor !== 'sistema' ? h('label', { class: 'rotulo' }, t('Personality (intonation variation)'), variacao) : null,
-    h('details', { class: 'nuvem-voz', open: l.motor === 'nuvem' && !l.nuvem.chaveConfigurada },
-      h('summary', {}, t('Cloud voice (optional)')),
-      h('p', { class: 'nota aviso-privacidade' }, t('Note: with cloud voice, the text read aloud (agent questions, announcements and summaries) is sent to the chosen provider. Everything else stays only on your computer.')),
-      l.nuvem.chaveConfigurada
-        ? h('div', { class: 'linha' }, h('span', { class: 'estado bom' }, t('{provider} key configured', { provider: l.nuvem.provedor === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI' })),
-          h('button', { class: 'btn fantasma pequeno', type: 'button', onclick: () => enviar({ tipo: 'leituraNuvemRemover' }) }, t('Remove')))
-        : h('div', { class: 'pilha' }, h('label', { class: 'rotulo' }, t('Provider'), provedor), h('label', { class: 'rotulo' }, t('API key'), chaveNuvem), salvarChave)),
-    h('p', { class: 'nota' }, t('Automatic reading speaks only agent questions, the announcement before acting and the summary when done.')));
+  const l=v.leitura;
+  const motor=h('select',{class:'campo','aria-label':'Motor de voz'},...l.motores.map(m=>h('option',{value:m.id,selected:m.id===l.motor,disabled:m.id!=='nuvem'&&!m.disponivel},m.id==='sistema'?'Voz do sistema / webview':'Voz neural em nuvem')));
+  motor.addEventListener('change',()=>enviar({tipo:'leituraConfigurar',motor:motor.value as MotorLeitura}));
+  const provedor=h('select',{class:'campo','aria-label':'Provedor de voz neural'},...['openai','elevenlabs','gemini'].map(p=>h('option',{value:p,selected:p===(l.nuvem.provedor??'openai')},({openai:'OpenAI',elevenlabs:'ElevenLabs',gemini:'Google Gemini'} as Record<string,string>)[p])));
+  provedor.addEventListener('change',()=>enviar({tipo:'leituraConfigurar',provedor:provedor.value as 'openai'|'elevenlabs'|'gemini'}));
+  const salvar=h('button',{class:'btn pequeno primario',type:'button',onclick:()=>{const chave=chaveNuvem.value.trim();chaveNuvem.value='';if(chave)enviar({tipo:'leituraNuvemChave',provedor:provedor.value as 'openai'|'elevenlabs'|'gemini',chave});}},'Validar e salvar chave');
+  const modelo=h('select',{class:'campo','aria-label':'Modelo TTS'},...(l.modelosNuvem??[]).map(m=>h('option',{value:m.id,selected:l.ttsModelo===m.id},m.nome)));
+  modelo.addEventListener('change',()=>enviar({tipo:'leituraConfigurar',ttsModelo:modelo.value}));
+  const porAgente=h('details',{},h('summary',{},'Voz diferente por agente (opcional)'),...(E?.agentes??[]).map(a=>{
+    const voz=h('select',{class:'campo','aria-label':`Voz de ${a.nick}`},h('option',{value:'',selected:!l.porAgente?.[a.id]},'Usar voz geral'),...l.vozes.map(v=>h('option',{value:v.id,selected:l.porAgente?.[a.id]===v.id},v.nome)));
+    voz.addEventListener('change',()=>enviar({tipo:'leituraConfigurar',porAgente:{...l.porAgente,[a.id]:voz.value}}));return h('label',{class:'rotulo'},a.nick,voz);
+  }));
+  return h('div',{class:'pilha'},h('label',{class:'rotulo'},'Motor de voz',motor),
+    h('details',{class:'nuvem-voz',open:l.motor==='nuvem'},h('summary',{},'Provedores de voz neural'),
+      h('p',{class:'nota'},'Voz gerada por IA. Ao usar nuvem, o texto e enviado ao provedor e pode gerar cobranca. Chaves ficam somente no cofre do VS Code; o login dos agentes e separado.'),
+      h('label',{class:'rotulo'},'Provedor',provedor),
+      h('div',{class:'linha'},chaveNuvem,salvar),
+      l.nuvem.chaveConfigurada?h('div',{class:'linha'},h('span',{},`Chave ${l.nuvem.mascara??'????'} configurada`),h('button',{class:'btn pequeno',type:'button',onclick:()=>enviar({tipo:'leituraNuvemRemover'})},'Remover chave deste provedor')):null,
+      h('button',{class:'btn pequeno',type:'button',onclick:()=>enviar({tipo:'leituraVozesAtualizar'})},'Atualizar modelos e vozes'),
+      l.modelosNuvem?.length?h('label',{class:'rotulo'},'Modelo de voz',modelo):null,
+      l.nuvem.nota?h('p',{class:'nota'},l.nuvem.nota):null),
+    h('button',{class:'btn pequeno',type:'button',onclick:()=>enviar({tipo:'leituraTestar'})},'Testar voz'),porAgente);
 }
-
-app.append(cabecalho, faixa, faixaFases, painelAprov, lista, composer, vistaExtra);
 
 // ---------- composer ----------
 const chipsComposer = h('div', { class: 'chips-composer' });
@@ -828,7 +795,7 @@ function secaoVoz(): HTMLElement {
       'p',
       { class: 'nota' },
       t(
-        'Speech and audio are processed only on this computer. The recording is deleted right after transcription.',
+        'Ditado opcional: FFmpeg e Whisper processam o microfone localmente. Para ouvir mensagens nao e necessario instalar nada. Voz neural envia o texto ao provedor escolhido.',
       ),
     ),
     h('h4', {}, t('Speak')),
@@ -1236,7 +1203,7 @@ function comandoMemoria(t: string): boolean {
 }
 function comandoOrquestrador(msg: string): boolean {
   const c = msg.trim().toLowerCase();
-  if (['/pausar', '/continuar', '/parar', '/stop'].includes(c)) {
+  if (c.startsWith('/reiniciar-contexto ') || ['/pausar', '/continuar', '/parar', '/stop'].includes(c)) {
     enviar({ tipo: 'enviar', texto: c, anexos: [] });
     return true;
   }
@@ -1275,6 +1242,21 @@ function comandoOrquestrador(msg: string): boolean {
 // ---------- vistas: agentes e configuracoes ----------
 function irPara(v: Vista): void { vista = v; salvarLocal({ vista: v }); renderTudo(); }
 
+function pickerModelo(a: Agente): HTMLElement {
+  const catalogo = a.catalogoModelos;
+  const modelo = h('select', { class: 'campo modelo-select', 'aria-label': `Modelo de ${a.nick}`, title: 'Aplicado na proxima mensagem; o turno atual continua com o modelo ativo.' },
+    h('option', { value: '', selected: !a.modelo }, 'Padrao / Auto'),
+    ...(catalogo?.modelos ?? []).map(m => h('option', { value: m.id, selected: a.modelo === m.id }, m.nome)),
+    a.modelo && !catalogo?.modelos.some(m => m.id === a.modelo) ? h('option', { value: a.modelo, selected: true }, a.modelo + ' (lista pendente)') : null);
+  modelo.addEventListener('change', () => enviar({ tipo: 'agenteModelo', id: a.id, modelo: modelo.value, esforco: '' }));
+  const niveis = catalogo?.modelos.find(m => m.id === a.modelo)?.esforcos ?? [];
+  const esforco = niveis.length ? h('select', { class: 'campo modelo-select', 'aria-label': `Esforco de ${a.nick}` },
+    h('option', { value: '', selected: !a.esforco }, 'Esforco automatico'),
+    ...niveis.map(n => h('option', { value: n, selected: a.esforco === n }, ({low:'Leve',medium:'Medio',high:'Alto'} as Record<string,string>)[n] ?? n))) : null;
+  esforco?.addEventListener('change', () => enviar({ tipo: 'agenteModelo', id: a.id, modelo: a.modelo ?? '', esforco: esforco.value }));
+  return h('div', { class: 'model-picker', title: catalogo?.detalhe ?? 'Atualize a lista para descobrir modelos disponiveis.' }, modelo, esforco,
+    h('button', { class: 'btn fantasma pequeno', type: 'button', 'aria-label': `Atualizar modelos de ${a.nick}`, onclick: () => enviar({tipo:'agenteModelos',id:a.id}) }, '↻'));
+}
 function cartaoAgente(a: Agente): HTMLElement {
   const papel = h('textarea', { class: 'campo', rows: 2, placeholder: t('Role of this agent in the room'), 'aria-label': t('Role of {name}', { name: a.nick }) });
   papel.value = a.papel;
@@ -1300,6 +1282,7 @@ function cartaoAgente(a: Agente): HTMLElement {
       a.tipo === 'api' || a.origem === 'manifesto' || a.id.startsWith('mistral-')
         ? h('button', { class: 'btn fantasma pequeno', type: 'button', title: t('Model, address (baseUrl) and command in VS Code settings'), onclick: () => enviar({ tipo: 'agenteConfigurar', id: a.id }) }, t('Model and address')) : null),
     painelLogin(a),
+    pickerModelo(a),
     a.id === 'mistral-vibe' || a.id === 'mistral-enterprise'
       ? h('p', { class: 'nota' }, 'ACP: disponivel em Total com leitura e escrita. Enterprise exige acesso/licenca da organizacao; dominio privado em Modelo e endereco.') : null,
     a.autenticacaoModo === 'conta' || a.autenticacaoModo === 'empresa'
@@ -1307,7 +1290,7 @@ function cartaoAgente(a: Agente): HTMLElement {
       : a.autenticacaoModo === 'api' ? h('p', { class: 'nota' }, 'Usa exclusivamente a chave configurada neste participante. Cobranca e limites sao os da API, separados da assinatura.') : null,
     h('label', { class: 'rotulo' }, t('Permission mode'), modo),
     h('label', { class: 'rotulo' }, t('Role'), papel),
-    a.temSessao ? h('button', { class: 'btn fantasma pequeno', type: 'button', title: t('Forgets the conversation thread of this agent'), onclick: () => enviar({ tipo: 'agenteNovaSessao', id: a.id }) }, t('Start a new session')) : null);
+    h('button', { class: 'btn fantasma pequeno', type: 'button', title: t('Forgets the conversation thread of this agent'), onclick: () => enviar({ tipo: 'agenteNovaSessao', id: a.id }) }, 'Reiniciar contexto do agente'));
 }
 
 // ---------- login sem terminal (v2) ----------
@@ -1473,7 +1456,7 @@ function vistaConfig(): HTMLElement {
     h('h3', {}, t('Room')),
     campoTexto(t('Your nickname'), c.nick, (s) => s && enviar({ tipo: 'configurar', parcial: { nick: s } })),
     campoTexto(t('Topic'), c.topico, (s) => enviar({ tipo: 'configurar', parcial: { topico: s } })),
-    campoNumero(t('Automatic hand-offs between agents (0 turns off)'), c.passagensAutomaticas, 0, 20, (n) => enviar({ tipo: 'configurar', parcial: { passagensAutomaticas: n } })),
+    campoNumero(t('Automatic hand-offs between agents (0 turns off)'), c.passagensAutomaticas, 0, 50, (n) => enviar({ tipo: 'configurar', parcial: { passagensAutomaticas: n } })),
     campoNumero(t('Maximum time per answer (minutes)'), c.timeoutMinutos, 1, 120, (n) => enviar({ tipo: 'configurar', parcial: { timeoutMinutos: n } })),
     h('h3', {}, t('Attachment limits')),
     h('p', { class: 'nota' }, t('Spreadsheets are never read in full: Orquestrador sends only the header and a sample of rows.')),
@@ -1529,6 +1512,8 @@ function vistaAssistente(): HTMLElement {
 }
 
 // ---------- montagem ----------
+app.append(cabecalho, faixa, faixaFases, painelAprov, lista, composer, vistaExtra);
+
 function renderTudo(): void {
   if (!E) return;
   const assistente = E.primeiraExecucao;
@@ -1577,6 +1562,8 @@ ouvir((m: DoHost) => {
   }
   if (!E) return;
   switch (m.tipo) {
+    case 'vozReproduzir':reproduzirVoz(m.audio);break;
+    case 'vozPararAudio':pararAudio(m.id);break;
     case 'mensagem':
       E.mensagens = substituir(E.mensagens, m.mensagem);
       renderMensagensDepois();
@@ -1692,6 +1679,10 @@ ouvir((m: DoHost) => {
       ).length;
       if (vista === 'chats') renderTudo();
       break;
+    case 'turno':
+      E.turnos = substituir(E.turnos ?? [],m.turno);
+      renderMensagensDepois();
+      break;
     case 'fase': {
       const ag = E.agentes.find((a) => a.id === m.agente);
       if (ag) {
@@ -1735,3 +1726,4 @@ ouvir((m: DoHost) => {
 app.append(h('div', { class: 'soltar', 'aria-hidden': 'true' }, icone('clipe'), t('Drop to attach')));
 iniciarIntegracoes({ renderTudo: () => renderTudo(), voltar: () => irPara('chat'), avisar: (x) => avisar(x) });
 enviar({ tipo: 'pronto' });
+vozesSistema();

@@ -1,5 +1,5 @@
 import type { Mensagem } from '../shared/protocolo';
-import { textoParaLeitura } from './leitor';
+import { textoParaLeitura } from './texto';
 export function trechoAutomatico(texto: string, anuncio = false): string {
   const semBlocos = texto
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')

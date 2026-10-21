@@ -82,6 +82,21 @@ test('MCPs herdados: fallback conserva nomes e exige transporte no nivel Manual'
     ]),
   );
 });
+test('Codex distingue recuperacao de transporte de falha fatal', () => {
+  const avisos: string[] = [], erros: string[] = [];
+  const ev = { sessao: () => {}, fala: () => {}, parcial: () => {}, acao: () => {},
+    sistema: (t: string) => avisos.push(t), erro: (t: string) => erros.push(t) };
+  for (const message of [
+    'Reconnecting... 2/5 (stream disconnected before completion: websocket closed by server before response.completed)',
+    'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: websocket closed by server before response.completed',
+    'Falha de ferramenta',
+  ]) lerEvento('codex', { type: 'item.completed', item: { type: 'error', message } }, ev);
+  lerEvento('codex', { type: 'turn.failed', error: { message: 'stream failed' } }, ev);
+  lerEvento('codex', { type: 'error', message: 'connection failed' }, ev);
+  assert.equal(avisos.length, 2);
+  assert.deepEqual(erros, ['Falha de ferramenta', 'stream failed', 'connection failed']);
+});
+
 test('JSONL dos tres CLIs produz sessoes, falas, acoes e erros', () => {
   const eventos: string[] = [];
   const ev = {

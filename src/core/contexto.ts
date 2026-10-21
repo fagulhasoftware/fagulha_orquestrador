@@ -31,7 +31,7 @@ export function montarContexto(opcoes: {
     `Autenticacao deste participante: ${agente.autenticacaoModo ?? agente.tipo}. Conta nativa e chave API sao fontes separadas. Nao existe fallback automatico entre elas; nao atribua custo ou limite a outra conta sem evidencia do provedor.`,
     `Participantes: ${config.nick} (dono), ${agentes
       .filter((a) => a.habilitado)
-      .map((a) => `${a.nick}: ${a.papel.slice(0, 500)}`)
+      .map((a) => `${a.nick} [modelo: ${a.modeloAtivo ?? a.modelo ?? "Padrao / Auto"}${a.esforcoAtivo ? "; esforco: " + a.esforcoAtivo : ""}]: ${a.papel.slice(0, 500)}`)
       .join('; ')
       .slice(0, 6000)}.`,
     `Topico: ${config.topico}. Projeto: ${projeto ?? 'avulsa'}. Nivel: ${config.nivel}. Modo: ${agente.modo}.`,
@@ -42,7 +42,7 @@ export function montarContexto(opcoes: {
           ? 'Total: recursos nativos, skills, plugins, Apps e MCPs dos agentes permanecem disponiveis conforme sua instalacao e autenticacao. Comandos e edicoes nativas nao passam pelo Portao. Para acoes irreversiveis externas use as ferramentas da sala com confirmacao individual. Informe suas acoes na sala.'
           : 'Ferramentas nativas podem acessar o workspace conforme seu modo. Shell, rede e acessos fora do workspace usam MCP Orquestrador Fagulha e Portao. Codex pode executar comandos em seu sandbox do workspace sem rede; essa excecao nao passa pelo Portao.') +
       ' Nao tente contornar as permissoes.',
-    'Para passar a palavra, mencione @nick seguido da instrucao. Sem mencao, a palavra volta ao dono.',
+    'Para passar a palavra, mencione @nick seguido da instrucao. Sem mencao, a palavra volta ao dono. Pedidos de execucao autorizados devem ser realizados neste turno: o anuncio de que vai fazer nao conclui a tarefa. Continue usando ferramentas ate entregar e verificar o resultado ou encontrar um impedimento concreto. Nao encerre apenas com uma promessa, nem alegue trabalho em background sem processo iniciado e evidencia. Perguntas de status nao cancelam uma tarefa pendente; informe o status e prossiga dentro das permissoes existentes.',
     '@ identifica somente participantes. # identifica skills e integracoes especialistas; nao encaminha a palavra para outro agente. / identifica comandos da sala. Uma integracao nativa depende do agente, da conta e do runtime; nunca afirme conexao so porque aparece no catalogo. Skills sao instrucoes e nao concedem credenciais de servicos.',
     agente.modo === 'escrita'
       ? 'Modo escrita: nao explore nem leia arquivos do projeto. Use apenas contexto anexado.'

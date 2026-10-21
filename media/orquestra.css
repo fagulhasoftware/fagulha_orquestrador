@@ -465,3 +465,19 @@ select.campo { background: var(--vscode-dropdown-background); color: var(--vscod
 .app-nativo p { margin: 3px 0 0; }
 .sugestoes li { display: flex; align-items: center; gap: 9px; min-height: 30px; }
 .sugestoes li span { overflow: hidden; text-overflow: ellipsis; }
+
+/* Model picker acompanha cada participante, com os tokens nativos do editor. */
+.agente-picker { display: flex; flex-direction: column; gap: 4px; max-width: 330px; }
+.model-picker { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.model-picker .modelo-select { width: auto; min-width: 110px; max-width: 230px; font-size: 11px; padding: 4px 6px; }
+.modelo-ativo { font-size: 10px; opacity: .7; margin-left: 6px; overflow-wrap: anywhere; }
+.e-travado .ponto { background: var(--vscode-errorForeground, #f48771); }
+.model-picker select:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+
+.atividade-item { margin: 5px 0; }
+.atividade-item summary { cursor:pointer; font-size:11px; opacity:.8; }
+.atividade-item pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:340px; overflow:auto; font-size:11px; }
+.grupo-acoes summary:focus-visible {outline:1px solid var(--vscode-focusBorder);}
+.atividade-atual {font-size:11px;opacity:.75;}
+
+.ativar-audio {position:fixed;bottom:86px;right:18px;z-index:200;max-width:260px;}

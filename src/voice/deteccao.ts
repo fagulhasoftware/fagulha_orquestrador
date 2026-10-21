@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EstadoVoz } from '../shared/protocolo';
-import { artefato, PIPER, VOZES_COMERCIAIS } from './catalogo';
+import { artefato } from './catalogo';
 import { executarVoz, type FabricaProcesso } from './processo';
 import type { ConfiguracaoVoz } from './configuracao';
 
@@ -162,80 +162,15 @@ export async function detectarVoz(
       if (so === 'linux') dispositivos = analisarMicrofones('', so);
     }
   }
-  let tts: string | undefined;
-  let vozes: EstadoVoz['leitura']['vozes'] = [];
-  try {
-    if (so === 'win32') {
-      const r = await executarVoz(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', SCRIPT_VOZES],
-        { fabrica },
-      );
-      vozes = analisarVozes(r.saida, so);
-      if (r.codigo === 0 && vozes.length) tts = 'powershell.exe';
-    } else if (so === 'darwin') {
-      const r = await executarVoz('say', ['-v', '?'], { fabrica });
-      vozes = analisarVozes(r.saida, so);
-      if (r.codigo === 0 && vozes.length) tts = 'say';
-    } else {
-      // Processo de síntese próprio: seu encerramento interrompe o áudio,
-      // sem cancelar falas de outros aplicativos no Speech Dispatcher.
-      const r = await executarVoz('espeak-ng', ['--voices'], { fabrica });
-      if (r.codigo === 0) {
-        tts = 'espeak-ng';
-        vozes = analisarVozes(r.saida, so);
-      }
-    }
-  } catch {}
+  const tts = undefined;
+  const vozes: EstadoVoz['leitura']['vozes'] = [];
   const disponivel = !!ffmpeg && !!whisper && existeModelo && dispositivos.length > 0;
-  let piper: string | undefined;
-  for (const cmd of [
-    join(pasta, 'bin', 'piper', so === 'win32' ? 'piper.exe' : 'piper'),
-    'piper',
-  ]) {
-    try {
-      if ((await executarVoz(cmd, ['--help'], { fabrica, timeoutMs: 5000 })).codigo === 0) {
-        piper = cmd;
-        break;
-      }
-    } catch {}
-  }
-  let vozPiper: string | undefined;
-  for (const voz of VOZES_COMERCIAIS) {
-    const modelo = join(pasta, 'modelos', voz.modelo.arquivo);
-    if (
-      await stat(modelo).then(
-        (s) => s.size === voz.modelo.tamanhoBytes,
-        () => false,
-      )
-    )
-      vozPiper = modelo;
-  }
-  componentes.push({
-    componente: 'piper',
-    nome: PIPER.nome,
-    situacao: piper ? 'instalado' : so === 'win32' && process.arch === 'x64' ? 'ausente' : 'manual',
-    origem: PIPER.url,
-    tamanhoBytes: PIPER.tamanhoBytes,
-    ...(so !== 'win32'
-      ? { comandoManual: 'Instale Piper 2023.11.14-2 pelo release oficial e adicione ao PATH.' }
-      : {}),
-  });
-  componentes.push({
-    componente: 'voz_neural',
-    nome: 'Voz neural pt_BR',
-    situacao: vozPiper ? 'instalado' : 'manual',
-    mensagem:
-      'Catalogo aguardando uma voz pt_BR com licenca comercial e origem do modelo-base verificadas.',
-  });
-  const motor = config.leitura.motor ?? (piper && vozPiper ? 'piper' : 'sistema');
+  const motor = config.leitura.motor === 'nuvem' ? 'nuvem' : 'sistema';
   return {
     ffmpeg,
     whisper,
     modelo,
     tts,
-    piper,
-    vozPiper,
     estado: {
       ...config,
       disponivel,
@@ -256,26 +191,12 @@ export async function detectarVoz(
         ...config.leitura,
         motor,
         motores: [
-          { id: 'sistema', disponivel: !!tts },
-          {
-            id: 'piper',
-            disponivel: !!piper && !!vozPiper,
-            motivo: 'Instale Piper e uma voz pt_BR com licenca comercial verificada.',
-          },
-          {
-            id: 'nuvem',
-            disponivel: false,
-            motivo:
-              'Configure uma chave validada e selecione este motor para enviar texto ao provedor.',
-          },
+          { id: 'sistema', disponivel: true },
+          { id: 'nuvem', disponivel: false },
         ],
         nuvem: { provedor: config.leitura.provedor ?? null, chaveConfigurada: false },
-        disponivel: motor === 'piper' ? !!piper && !!vozPiper : motor === 'sistema' && !!tts,
-        motivo: tts
-          ? undefined
-          : so === 'linux'
-            ? 'Instale eSpeak NG pelo gerenciador de pacotes do sistema para ouvir as mensagens.'
-            : 'Nenhuma voz nativa disponível no sistema.',
+        disponivel: motor === 'sistema',
+        motivo: undefined,
         vozes,
       },
     },

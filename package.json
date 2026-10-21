@@ -2,7 +2,7 @@
   "name": "orquestrador-fagulha",
   "displayName": "Orquestrador Fagulha",
   "description": "Uma sala local para orquestrar seus agentes de desenvolvimento no VS Code.",
-  "version": "0.4.8",
+  "version": "0.6.0",
   "publisher": "FagulhaSoftware",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -94,13 +94,13 @@
         "fagulha.provedores": {
           "type": "object",
           "default": {},
-          "description": "Por ID: baseUrl, modelo, comando. Chaves somente no login via SecretStorage."
+          "description": "Por ID: baseUrl, modelo padrao, comando e modelos (lista de IDs ou objetos {id,nome,esforcos}). Chaves somente no SecretStorage. Modelos sao descobertos do runtime/API quando disponivel."
         },
         "fagulha.passagensAutomaticas": {
           "type": "number",
           "default": 6,
           "minimum": 0,
-          "maximum": 30
+          "maximum": 50
         },
         "fagulha.timeoutMinutos": {
           "type": "number",
@@ -223,6 +223,16 @@
           "type": "string",
           "default": "https://api.mistral.ai/v1",
           "description": "Endpoint da API Mistral, separado dos perfis de conta Vibe e Enterprise."
+        },
+        "fagulha.diagnosticoContexto": {
+          "type": "boolean",
+          "default": false,
+          "description": "Registrar IDs, sequencias, hash, tamanho, modelo e resultado no canal Orquestrador Fagulha - Diagnostico. Nao registra prompts nem respostas."
+        },
+        "fagulha.atividadesExpandidas": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expandir atividades dos turnos por padrao. Erros e aprovacoes permanecem visiveis."
         }
       }
     },

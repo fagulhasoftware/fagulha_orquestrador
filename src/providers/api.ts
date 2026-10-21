@@ -12,9 +12,11 @@ import { opcoesLogin, baseApi, type ConfigLogin } from './login';
 import { faseFerramenta } from '../core/fases';
 import { conteudoResultado } from '../mcp/conteudo';
 import { ErroFerramenta } from '../mcp/erros';
+import { catalogoConfigurado, type ConfigModelos } from './modelos';
 import { AcaoRecusada } from '../permissions/portao';
-export type ApiId = 'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api' | 'mistral-api';
-export interface OpcoesApi {
+export type ApiId =
+  'ollama' | 'openai-api' | 'openai-compativel' | 'anthropic' | 'gemini-api' | 'mistral-api';
+export interface OpcoesApi extends ConfigModelos {
   baseUrl?: string;
   modelo?: string;
 }
@@ -30,15 +32,17 @@ export class ProvedorApi implements Provedor {
   ) {
     this.agente = agentePadrao(
       id,
-      id === 'mistral-api' ? 'MistralAPI' : id === 'gemini-api'
-        ? 'GeminiAPI'
-        : id === 'openai-compativel'
-          ? 'OpenAICompativel'
-          : id === 'openai-api'
-            ? 'OpenAI'
-            : id === 'anthropic'
-              ? 'Anthropic'
-              : 'Ollama',
+      id === 'mistral-api'
+        ? 'MistralAPI'
+        : id === 'gemini-api'
+          ? 'GeminiAPI'
+          : id === 'openai-compativel'
+            ? 'OpenAICompativel'
+            : id === 'openai-api'
+              ? 'OpenAI'
+              : id === 'anthropic'
+                ? 'Anthropic'
+                : 'Ollama',
       'api',
       'azul',
     );
@@ -70,10 +74,115 @@ export class ProvedorApi implements Provedor {
         ? 'http://127.0.0.1:11434'
         : this.id === 'anthropic'
           ? 'https://api.anthropic.com/v1'
-          : this.id === 'mistral-api' ? 'https://api.mistral.ai/v1' : this.id === 'gemini-api'
-            ? 'https://generativelanguage.googleapis.com/v1beta'
-            : 'https://api.openai.com/v1')
+          : this.id === 'mistral-api'
+            ? 'https://api.mistral.ai/v1'
+            : this.id === 'gemini-api'
+              ? 'https://generativelanguage.googleapis.com/v1beta'
+              : 'https://api.openai.com/v1')
     );
+  }
+  async listarModelos() {
+    const config = this.opcoes();
+    const sinal = AbortSignal.timeout(15000);
+    const configurado = catalogoConfigurado(config);
+    const fallback = {
+      ...configurado,
+      modelos: configurado.modelos.map(({ id, nome }) => ({ id, nome })),
+      padrao: config.modelo,
+      detalhe:
+        'Configure modelos de chat em fagulha.provedores.<id>.modelos quando o endpoint nao anunciar capacidades.',
+    };
+    try {
+      const base = validarUrl(this.endpoint);
+      if (
+        base.protocol !== 'https:' &&
+        !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)
+      )
+        return fallback;
+      if (this.id === 'ollama' && !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname))
+        return fallback;
+      const chave = await this.segredos.get(`fagulha.api.${this.id}`);
+      if (this.id !== 'ollama' && !chave) return fallback;
+      const headers: Record<string, string> = {};
+      if (chave) protegerSegredo(chave);
+      if (this.id === 'anthropic') {
+        headers['x-api-key'] = chave!;
+        headers['anthropic-version'] = '2023-06-01';
+      } else if (this.id === 'gemini-api') headers['x-goog-api-key'] = chave!;
+      else if (chave) headers.authorization = `Bearer ${chave}`;
+      const caminho = this.id === 'ollama' ? '/api/tags' : '/models';
+      const modelos: { id: string; nome: string }[] = [];
+      let proxima = '';
+      for (let pagina = 0; pagina < 10; pagina++) {
+        const r = await fetch(base.href.replace(/\/$/, '') + caminho + proxima, {
+          headers,
+          signal: sinal,
+          redirect: 'error',
+        });
+        if (!r.ok) {
+          await r.body?.cancel();
+          return fallback;
+        }
+        const j = JSON.parse(await lerRespostaLimitada(r, 2 * 1024 * 1024));
+        const itens =
+          this.id === 'ollama' ? j.models : this.id === 'gemini-api' ? j.models : j.data;
+        for (const m of (itens ?? []).slice(0, 500)) {
+          if (
+            this.id === 'gemini-api' &&
+            !m.supportedGenerationMethods?.includes('generateContent')
+          )
+            continue;
+          const id =
+            this.id === 'ollama'
+              ? m.name
+              : this.id === 'gemini-api'
+                ? m.name?.replace(/^models\//, '')
+                : m.id;
+          if (typeof id !== 'string') continue;
+          if (this.id === 'ollama') {
+            // tags tambem contem embeddings. show consulta metadados, sem inferencia.
+            const show = await fetch(base.href.replace(/\/$/, '') + '/api/show', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ model: id }),
+              signal: sinal,
+              redirect: 'error',
+            });
+            if (!show.ok) {
+              await show.body?.cancel();
+              continue;
+            }
+            const meta = JSON.parse(await lerRespostaLimitada(show, 2 * 1024 * 1024));
+            if (!meta.capabilities?.includes('completion')) continue;
+          } else if (['openai-api', 'openai-compativel', 'mistral-api'].includes(this.id)) {
+            const capacidade = m.capabilities?.completion_chat ?? m.capabilities?.chat;
+            if (capacidade === false) continue;
+            if (
+              capacidade !== true &&
+              !m.supported_endpoints?.includes('chat/completions') &&
+              !configurado.modelos.some((c) => c.id === id)
+            )
+              continue;
+          }
+          modelos.push({ id, nome: m.displayName ?? m.display_name ?? id });
+        }
+        if (this.id === 'gemini-api' && j.nextPageToken)
+          proxima = '?pageToken=' + encodeURIComponent(j.nextPageToken);
+        else if (this.id === 'anthropic' && j.has_more && j.last_id)
+          proxima = '?after_id=' + encodeURIComponent(j.last_id);
+        else break;
+      }
+      if (!modelos.length) return fallback;
+      return {
+        modelos: modelos.slice(0, 500),
+        origem: 'api' as const,
+        padrao: config.modelo,
+        detalhe:
+          'Modelos de chat anunciados pelo endpoint ou explicitamente configurados; acesso na conta e ferramentas sao confirmados ao executar.',
+      };
+    } catch {
+      return fallback;
+    }
   }
   async detectar() {
     return { instalado: true };
@@ -109,8 +218,9 @@ export class ProvedorApi implements Provedor {
       ev.fase?.('respondendo');
       ev.fala(texto);
     };
-    const modelo = this.opcoes().modelo;
+    const modelo = p.modelo || this.opcoes().modelo;
     if (!modelo) throw new Error(`Configure fagulha.provedores.${this.id}.modelo no VS Code.`);
+    ev.modelo?.(modelo);
     const base = validarUrl(this.endpoint);
     if (base.protocol !== 'https:' && !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname))
       throw new Error('API remota exige HTTPS.');
@@ -130,7 +240,8 @@ export class ProvedorApi implements Provedor {
       {
         role: 'user',
         content:
-          p.imagens?.length && (this.id === 'openai-compativel' || this.id === 'openai-api' || this.id === 'mistral-api')
+          p.imagens?.length &&
+          (this.id === 'openai-compativel' || this.id === 'openai-api' || this.id === 'mistral-api')
             ? [
                 { type: 'text', text: p.prompt },
                 ...p.imagens.map((img) => ({
@@ -211,8 +322,15 @@ export class ProvedorApi implements Provedor {
         redirect: 'error',
       });
       if (!resposta.ok) {
-        await resposta.body?.cancel();
-        throw new Error(`API ${this.id}: HTTP ${resposta.status}.`);
+        const detalhe = await lerRespostaLimitada(resposta, 16000).catch(() => '');
+        let motivo = '';
+        try {
+          const e = JSON.parse(detalhe).error;
+          motivo = [e?.code, e?.status, e?.message].filter(Boolean).join(': ');
+        } catch {}
+        throw new Error(
+          mascarar(`API ${this.id}: HTTP ${resposta.status}. ${motivo.slice(0, 1000)}`),
+        );
       }
       const j = JSON.parse(await lerRespostaLimitada(resposta, 4 * 1024 * 1024));
       const chamadas: { id: string; nome: string; args: Record<string, unknown> }[] = [];
