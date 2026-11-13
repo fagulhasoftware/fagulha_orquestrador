@@ -191,10 +191,21 @@ export const avisoConfigCodex =
   'O Codex ignorou configuracoes obsoletas no seu config.toml: ' +
   'features.rmcp_client, mcp. Isso nao afeta o Orquestrador.';
 
+export function avisoMultiAgentObsoleto(texto: string): boolean {
+  return /^`\[features\]\.multi_agent` is deprecated\. It still controls the V1 fallback\. `\[agents\]\.enabled = false` disables subagent tools even when the model selects a subagent version, unless `\[features\]\.multi_agent_v2` is enabled\.$/.test(texto.trim());
+}
+
+export const avisoMultiAgentCodex =
+  'Codex: a configuracao multi_agent e obsoleta; este aviso nao indica falha do turno. Revise a configuracao de subagentes se precisar desse recurso.';
+
 // Classifica tambem avisos multiline emitidos no stderr, sem ocultar erros reais.
 export function filtroAvisoCodex(avisar: () => void): (linha: string) => boolean {
   let continuacao = false;
   return (linha) => {
+    if (avisoMultiAgentObsoleto(linha)) {
+      avisar();
+      return false;
+    }
     if (/^[^{]*\bCodex is ignoring \d+ unrecognized configuration settings/i.test(linha)) {
       continuacao = true;
       avisar();

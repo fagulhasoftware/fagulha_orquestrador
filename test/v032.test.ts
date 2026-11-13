@@ -265,7 +265,9 @@ test('contexto do agente informa id, nome, tipo, bytes e tratamento dos anexos',
   const tmp = await temporario();
   try {
     const { sala } = await fixture(tmp.pasta);
-    sala.config.nivel = 'total';
+    // Persist the permission through the real API: global sync cancels a turn
+    // if only the in-memory permission was changed underneath its configuration.
+    await sala.configurar({ nivel: 'total' }, 'ACEITO OS RISCOS');
     let prompt = '';
     sala.provedores.get('codex')!.executar = async (pedido) => {
       prompt = pedido.prompt;

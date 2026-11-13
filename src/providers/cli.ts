@@ -18,6 +18,8 @@ import {
   tomlString,
   filtroAvisoCodex,
   avisoConfigCodex,
+  avisoMultiAgentObsoleto,
+  avisoMultiAgentCodex,
   type McpHerdado,
 } from './codex-mcp';
 
@@ -299,6 +301,10 @@ export function lerEvento(id: CliId, j: any, ev: EventosProvedor): void {
       else if (it.type === 'command_execution') ev.acao(`terminou (saida ${it.exit_code})`);
       else if (it.type === 'error') {
         const mensagem = it.message ?? 'Falha';
+        if (avisoMultiAgentObsoleto(mensagem)) {
+          (ev.sistema ?? ev.acao)(avisoMultiAgentCodex);
+          return;
+        }
         // Estes eventos informam recuperacao do transporte, nao falha do turno.
         // turn.failed/error (ou saida nao zero) continuam sendo erros fatais.
         if (/^(?:Reconnecting\.\.\. \d+\/\d+ \(|Falling back from WebSockets to HTTPS transport\.)/.test(mensagem))
@@ -748,6 +754,12 @@ export class ProvedorCli implements Provedor {
             lerEvento(this.id, j, {
               ...ev,
               erro: (texto) => {
+                if (this.id === 'codex' && avisoMultiAgentObsoleto(texto)) {
+                  // Terminal turn.failed/error must retain fatal semantics.
+                  if (j.type === 'turn.failed' || j.type === 'error') ev.erro(texto);
+                  else avisar('multi-agent', avisoMultiAgentCodex);
+                  return;
+                }
                 if (this.id === 'codex' && !filtroAvisoCodex(avisarConfig)(texto)) return;
                 ev.erro(texto);
               },

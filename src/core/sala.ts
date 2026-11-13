@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { aguardarCancelamento, aguardarPrazo } from './execucao';
 import type {
   Agente,
   Configuracao,
@@ -78,7 +79,11 @@ interface Persistida {
   anexosPendentes?: string[];
   ultimo_chat?: string;
 }
+const turnosLocaisAtivos = new Set<string>();
+interface TurnoPersistido extends TurnoAtividade { registroTurno?: boolean; donoPid?: number; instancia?: string; }
 export class Sala {
+  private readonly instancia = randomUUID();
+  private pendencias = new Map<string, Promise<unknown>>();
   private pausado?: { id: string; chat: string };
   atividadesExpandidas = false;
   private turnos = new Map<string,TurnoAtividade>();
@@ -131,6 +136,7 @@ export class Sala {
     readonly projeto: string | null,
     readonly titulo: string,
     readonly storage: Armazenamento,
+    private readonly prazos: { cancelamentoMs?: number; limpezaMs?: number } = {},
   ) {
     this.chats = new Chats(storage, id, projeto);
     this.memorias = new Memorias(storage, projeto);
@@ -158,6 +164,25 @@ export class Sala {
         await storage.gravar('auditoria', this.id, id, r);
       },
     );
+  }
+  private registroTurno(turno: TurnoAtividade): TurnoPersistido {
+    return { ...turno, registroTurno: true, donoPid: process.pid, instancia: this.instancia };
+  }
+  private aguardarEtapa<T>(tarefa: Promise<T>, sinal: AbortSignal, agente: string): Promise<T> {
+    return aguardarCancelamento(tarefa, sinal, this.prazos.cancelamentoMs ?? 2000, (pendente) => {
+      this.pendencias.set(agente, pendente);
+      this.diagnosticar({ evento:'cancelamento_pendente', agente });
+      const concluir = () => {
+        if (this.pendencias.get(agente) !== pendente) return;
+        this.pendencias.delete(agente);
+        const a = this.provedores.get(agente)?.agente;
+        if (a?.estado === 'travado') {
+          a.estado = a.habilitado ? 'livre' : 'desabilitado';
+          this.emitir({ tipo:'agente', agente:a });
+        }
+      };
+      void pendente.then(concluir, concluir);
+    });
   }
   get agentes(): Agente[] {
     return [...this.provedores.values()].map((p) => p.agente);
@@ -337,7 +362,7 @@ export class Sala {
         : {}),
     };
     const turno=this.atual?.id===id?this.turnos.get(this.atual.requisicaoId):undefined;
-    if(turno){turno.fase=a.fase;if(['concluido','interrompido','erro'].includes(tipo)) {turno.fim=new Date().toISOString();this.persistir(this.storage.gravarDoChat('acoes',this.chat.id,'turno:'+turno.id,{...turno,registroTurno:true}));}this.emitir({tipo:'turno',turno:{...turno}});}
+    if(turno){turno.fase=a.fase;if(['concluido','interrompido','erro'].includes(tipo)) {turno.fim=new Date().toISOString();this.persistir(this.storage.gravarDoChat('acoes',this.chat.id,'turno:'+turno.id,this.registroTurno(turno)));}this.emitir({tipo:'turno',turno:{...turno}});}
     this.emitir({ tipo: 'fase', agente: id, fase: a.fase });
   }
   async sincronizarGlobal(): Promise<void> {
@@ -388,7 +413,36 @@ export class Sala {
     for (const mensagem of await this.storage.listar<Mensagem>('mensagens', this.chat.id))
       this.mensagens.push(mensagem);
     this.turnos.clear();
-    for(const r of await this.storage.listar<TurnoAtividade & {registroTurno?:boolean}>('acoes',this.chat.id)) if(r.registroTurno) this.turnos.set(r.id,r);
+    const registros = await this.storage.listar<TurnoPersistido>('acoes', this.chat.id);
+    const ultimoPorAgente = new Map<string, TurnoPersistido>();
+    const sessoesIncertas = new Set<string>();
+    for (const r of registros) {
+      if (r.registroTurno && (!ultimoPorAgente.has(r.agente) || Date.parse(r.inicio) >= Date.parse(ultimoPorAgente.get(r.agente)!.inicio))) ultimoPorAgente.set(r.agente, r);
+    }
+    for (const r of registros) {
+      if (!r.registroTurno) continue;
+      let vivo = this.atual?.requisicaoId === r.id;
+      if (!vivo && r.donoPid && r.instancia) {
+        if (r.donoPid === process.pid) vivo = turnosLocaisAtivos.has(`${r.instancia}:${r.id}`);
+        else {
+          try { process.kill(r.donoPid, 0); vivo = true; }
+          catch (e) { vivo = (e as NodeJS.ErrnoException).code === 'EPERM'; }
+        }
+      }
+      if (!r.fim && !vivo) {
+        if (ultimoPorAgente.get(r.agente) === r) sessoesIncertas.add(r.agente);
+        const ultimaAtividade = this.mensagens.filter((m) => m.requisicaoId === r.id)
+          .map((m) => Date.parse(m.quando)).filter(Number.isFinite);
+        const inicio = Date.parse(r.inicio);
+        const fim = Math.max(Number.isFinite(inicio) ? inicio : Date.now(), ...ultimaAtividade);
+        r.fim = new Date(fim).toISOString();
+        r.fase = { tipo:'interrompido', desde:new Date().toISOString(),
+          detalhe:'Execucao anterior sem dono ativo; registro recuperado.', duracaoMs:Math.max(0, fim - (Number.isFinite(inicio) ? inicio : fim)) };
+        await this.storage.gravarDoChat('acoes', this.chat.id, 'turno:' + r.id, r);
+        this.diagnosticar({evento:'turno_orfao_encerrado', agente:r.agente, requisicaoId:r.id, chat:this.chat.id});
+      }
+      this.turnos.set(r.id, r);
+    }
     this.anexos.clear();
     this.contextos.clear();
     this.anexosPendentes.clear();
@@ -415,6 +469,10 @@ export class Sala {
         });
     }
     for (const p of this.provedores.values()) {
+      if (sessoesIncertas.has(p.agente.id)) {
+        for (const modo of ['leitura', 'escrita', 'leitura_escrita'])
+          await this.storage.remover('sessoes_provedor', this.chat.id, `${p.agente.id}:${modo}`);
+      }
       const sessao = await this.storage.obter<Sessao>(
         'sessoes_provedor',
         this.chat.id,
@@ -678,6 +736,10 @@ export class Sala {
     if (this.trocando) return;
     const a = this.provedores.get(id)?.agente;
     if (!a?.habilitado || !a.instalado || this.fila.some((f) => f.id === id)) return;
+    if (this.pendencias.has(id)) {
+      this.mensagem('sistema', `${a.nick}: a execucao anterior ainda nao confirmou encerramento. Outros agentes podem continuar; nao foi iniciada outra instancia.`, 'erro');
+      return;
+    }
     this.fila.push({ id, saltos });
     if (this.atual?.id !== id) {
       a.estado = 'na_fila';
@@ -702,9 +764,11 @@ export class Sala {
       const entrada = this.fila.shift()!,
         p = this.provedores.get(entrada.id);
       if (!p?.agente.habilitado) continue;
+      if (this.pendencias.has(entrada.id)) continue;
       const a = p.agente,
         controle = new AbortController();
       this.atual = { id: a.id, controle, inicio: Date.now(), esperaTotal: 0, requisicaoId: randomUUID() };
+      turnosLocaisAtivos.add(`${this.instancia}:${this.atual.requisicaoId}`);
       this.fase(a.id, 'pensando');
       a.estado = 'trabalhando';
       this.emitir({ tipo: 'agente', agente: a });
@@ -752,6 +816,11 @@ export class Sala {
         });
       let visto = this.mensagens.length;
       let preparada: Awaited<ReturnType<NonNullable<Sala['preparar']>>> | undefined;
+      let limpeza: Promise<void> | undefined;
+      const limparPreparada = (recurso: NonNullable<typeof preparada>) => {
+        limpeza ??= aguardarPrazo(Promise.resolve().then(() => recurso.limpar()), this.prazos.limpezaMs ?? 5000);
+        return limpeza;
+      };
       try {
         await Promise.all(this.persistencias);
         await this.sincronizarGlobal();
@@ -759,10 +828,19 @@ export class Sala {
         sessao = this.sessoes.get(a.id);
         const turno:TurnoAtividade={id:requisicaoId,agente:a.id,autor:a.nick,inicio:new Date(this.atual!.inicio).toISOString(),fase:a.fase};
         this.turnos.set(requisicaoId,turno);this.emitir({tipo:'turno',turno});
-        this.persistir(this.storage.gravarDoChat('acoes',chatExec,'turno:'+requisicaoId,{...turno,registroTurno:true}));
+        this.persistir(this.storage.gravarDoChat('acoes',chatExec,'turno:'+requisicaoId,this.registroTurno(turno)));
         this.mensagem(a.nick,'Enviar contexto atual da sala','acao');
         await this.atualizarMemorias(false);
-        preparada = await this.preparar?.(a, controle.signal);
+        const preparacao = this.preparar?.(a, controle.signal);
+        if (preparacao) {
+          void preparacao.then((recurso) => {
+            if (controle.signal.aborted) void limparPreparada(recurso).catch(() => {
+              this.diagnosticar({evento:'limpeza_tardia_falhou', agente:a.id, requisicaoId});
+            });
+          }, () => {});
+          preparada = await this.aguardarEtapa(preparacao, controle.signal, a.id);
+        }
+        if (controle.signal.aborted) throw new Error('Execucao interrompida antes do envio do contexto.');
         const enviados = new Set(this.mensagens.flatMap((m) => (m.anexos ?? []).map((a) => a.id)));
         const anexos = [...this.anexos.values()].filter(
           (x) => enviados.has(x.meta.id) && x.meta.tratamento !== 'recusado',
@@ -822,7 +900,7 @@ export class Sala {
           requisicaoId,
           contextoSeq,
         };
-        await p.executar(
+        await this.aguardarEtapa(p.executar(
           pedido,
           {
             modelo: (id) => {
@@ -905,7 +983,7 @@ export class Sala {
             },
           },
           controle.signal,
-        );
+        ), controle.signal, a.id);
         await Promise.all(this.persistencias);
         const recentes = await this.storage.listar<Mensagem>('mensagens', chatExec);
         const ultimoExterno = recentes
@@ -930,9 +1008,11 @@ export class Sala {
         );
       } finally {
         clearTimeout(timer);
-        await this.perguntas.cancelarAgente(a.id);
+        try { await aguardarPrazo(this.perguntas.cancelarAgente(a.id), this.prazos.limpezaMs ?? 5000); }
+        catch { diagnostico('finalizacao_perguntas_pendente'); }
         try {
-          await preparada?.limpar();
+          // Revoke this turn's capabilities even if its provider has not confirmed shutdown.
+          if (preparada) await limparPreparada(preparada);
         } catch {
           this.mensagem('sistema', 'Falha ao limpar arquivos temporarios da sessao.', 'erro');
         }
@@ -1000,7 +1080,9 @@ export class Sala {
         ) {
           this.sessoes.delete(a.id);
           a.temSessao = false;
-          await this.storage.remover('sessoes_provedor', chatExec, `${a.id}:${a.modo}`);
+          try {
+            await aguardarPrazo(this.storage.remover('sessoes_provedor', chatExec, `${a.id}:${a.modo}`), this.prazos.limpezaMs ?? 5000);
+          } catch { diagnostico('limpeza_sessao_pendente'); }
         }
         if (sessao && this.sessoes.has(a.id)) {
           sessao.visto = visto;
@@ -1015,23 +1097,25 @@ export class Sala {
           );
         }
         a.estado = a.habilitado
-          ? recuperar
+          ? recuperar || this.pendencias.has(a.id)
             ? 'travado'
             : falhou && !controle.signal.aborted
               ? 'erro'
               : 'livre'
           : 'desabilitado';
         this.fase(a.id, controle.signal.aborted ? 'interrompido' : falhou ? 'erro' : 'concluido');
+        turnosLocaisAtivos.delete(`${this.instancia}:${requisicaoId}`);
+        if (this.pendencias.has(a.id)) this.mensagem('sistema', `${a.nick}: cancelamento pendente no provedor. Turno encerrado na sala; os demais participantes podem continuar.`, 'erro');
         this.atual = undefined;
         this.emitir({ tipo: 'agente', agente: a });
       }
       if (recuperar) {
         this.mensagem(
           'sistema',
-          `${a.nick} travado: ${recuperar}. Sessao encerrada.${entrada.recuperacoes ? ' Recuperacao automatica ja tentada; use Reiniciar contexto do agente.' : ' Reabrindo com o contexto atual da sala.'}`,
+          `${a.nick} travado: ${recuperar}. Sessao encerrada.${this.pendencias.has(a.id) ? ' Recuperacao aguarda o encerramento da execucao anterior; demais agentes podem continuar.' : entrada.recuperacoes ? ' Recuperacao automatica ja tentada; use Reiniciar contexto do agente.' : ' Reabrindo com o contexto atual da sala.'}`,
           'sistema',
         );
-        if (!entrada.recuperacoes) {
+        if (!entrada.recuperacoes && !this.pendencias.has(a.id)) {
           this.saude.limpar(`${chatExec}:${a.id}`);
           this.fila.unshift({ ...entrada, recuperacoes: 1 });
         }
@@ -1128,7 +1212,7 @@ export class Sala {
     this.respostasRecusadas.delete(`${this.chat.id}:${id}`);
     const a = this.provedores.get(id)?.agente;
     if (a) {
-      a.estado = a.habilitado ? 'livre' : 'desabilitado';
+      a.estado = a.habilitado ? this.pendencias.has(id) ? 'travado' : 'livre' : 'desabilitado';
       this.emitir({ tipo: 'agente', agente: a });
     }
     this.mensagem(

@@ -1,5 +1,15 @@
 # Orquestrador Fagulha
 
+### Codex na versao 0.6.4
+
+A CLI Codex pode emitir um item de aviso sobre a configuracao obsoleta `features.multi_agent` e continuar concluindo o turno. A sala agora trata esse aviso conhecido como informativo, preservando a resposta. Eventos terminais `turn.failed`/`error` e codigo de saida nao zero continuam sendo erros. Nenhuma chave ou configuracao global e alterada. A versao inclui a correcao de congelamento abaixo, sem o provedor Nemotron.
+
+### Correcao de congelamento na 0.6.0
+
+A correcao local de 2026-11-04 mantem a versao 0.6.0. Ao reabrir uma conversa, turnos antigos sem execucao identificavel sao encerrados como interrompidos; o historico permanece. Novos turnos registram seu processo e instancia para preservar trabalho ativo de outra sala.
+
+O timeout configurado continua valendo. Depois de um cancelamento, uma etapa que nao confirma encerramento em dois segundos deixa de bloquear toda a sala: o agente fica marcado como travado, sua saida tardia e ignorada e os demais podem continuar. Outra instancia do mesmo agente so pode iniciar apos terminar a operacao pendente. Finalizacao de recursos tem prazo de cinco segundos. Se o ultimo turno de um agente foi abandonado, a sessao persistida e descartada para recompor o contexto a partir do historico atual.
+
 ## Specialists and native resources (0.4.2)
 
 Use `@` for room participants, `#` for specialist skills/apps/MCP integrations and `/` for room commands.

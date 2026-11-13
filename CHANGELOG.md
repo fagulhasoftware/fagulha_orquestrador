@@ -1,3 +1,16 @@
+## 0.6.4 - 2026-11-13
+
+- Corrige aviso de configuracao multi_agent da CLI Codex atual classificado como erro fatal, que fazia a sala descartar respostas mesmo quando a CLI continuava trabalhando.
+- Mantem turn.failed, eventos de erro terminal e saida nao zero como falhas. Nao altera configuracao ou autenticacao do usuario.
+- Inclui as correcoes locais de congelamento da 0.6.0 e testes de regressao. Sem implementacao Nemotron.
+
+## Correcao local da 0.6.0 - 2026-11-04 (versao mantida)
+
+- Encerra registros de turnos sem dono ativo ao reabrir, preservando historico e ultima atividade conhecida.
+- Identifica o processo e a instancia responsaveis pelos novos turnos para preservar execucoes realmente ativas em outras salas.
+- Cancelamento tem prazo para liberar a fila mesmo quando o provedor ignora o sinal. Saidas tardias sao descartadas e o mesmo agente nao ganha outra instancia ate confirmar encerramento.
+- Preparacao e limpeza deixam de prender troca de conversa indefinidamente. Sessao incerta de um agente e invalidada para recompor contexto na proxima mensagem.
+
 ## 0.6.0 ? 2026-10-21
 
 - Atividades por turno recolhidas, detalhes individuais, tempo ao vivo e acessibilidade; erros e aprovacoes visiveis.

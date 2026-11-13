@@ -7,6 +7,25 @@ import { ProvedorCli, montarArgumentos } from '../src/providers/cli';
 import { isolamentoMcp, lerMcpJson, tomlString } from '../src/providers/codex-mcp';
 import type { EventosProvedor, PedidoExecucao } from '../src/providers/tipos';
 import { temporario } from './apoio';
+import { lerEvento } from '../src/providers/cli';
+import { filtroAvisoCodex } from '../src/providers/codex-mcp';
+
+test('aviso multi_agent obsoleto nao transforma resposta valida do Codex em falha', () => {
+  const aviso = '`[features].multi_agent` is deprecated. It still controls the V1 fallback. `[agents].enabled = false` disables subagent tools even when the model selects a subagent version, unless `[features].multi_agent_v2` is enabled.';
+  const erros: string[] = [], falas: string[] = [], avisos: string[] = [];
+  const ev: EventosProvedor = {sessao:()=>{},acao:()=>{},parcial:()=>{},fala:t=>falas.push(t),erro:t=>erros.push(t),sistema:t=>avisos.push(t)};
+  lerEvento('codex',{type:'item.completed',item:{type:'error',message:aviso}},ev);
+  lerEvento('codex',{type:'item.completed',item:{type:'agent_message',text:'resposta atual'}},ev);
+  assert.deepEqual(erros,[]);
+  assert.deepEqual(falas,['resposta atual']);
+  assert.equal(avisos.length,1);
+  let notificado=0;
+  assert.equal(filtroAvisoCodex(()=>notificado++)(aviso),false);
+  assert.equal(notificado,1);
+  lerEvento('codex',{type:'turn.failed',error:{message:aviso}},ev);
+  assert.equal(erros.length,1,'turn.failed nunca deve ser escondido');
+  assert.equal(filtroAvisoCodex(()=>{} )('model unavailable: permission denied'),true);
+});
 
 const servidores = [
   {
@@ -174,6 +193,10 @@ async function fixture(opcoes: Record<string, unknown> = {}) {
       const id = args[1] === 'resume' ? args[2] : 'sessao-' + log.execucoes.length;
       console.log(JSON.stringify({type: 'thread.started', thread_id: id}));
       avisar();
+      if (op.multiAgent) {
+        const aviso=${JSON.stringify('`[features].multi_agent` is deprecated. It still controls the V1 fallback. `[agents].enabled = false` disables subagent tools even when the model selects a subagent version, unless `[features].multi_agent_v2` is enabled.')};
+        console.log(JSON.stringify({type:'item.completed',item:{type:'error',message:aviso}}));
+      }
       if (op.aviso) console.log(JSON.stringify({type:'item.completed',item:{type:'error',message:'Codex is ignoring 2 unrecognized configuration settings: features.rmcp_client, mcp'}}));
       console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'resposta concluida'}}));
       if (op.falha) { console.error('falha real da fixture'); process.exitCode = 3; }
@@ -328,6 +351,16 @@ for (const avisoStdout of [false, true])
       await f.limpar();
     }
   });
+
+test('CLI ficticia atual entrega resposta mesmo com aviso multi_agent no stream', async () => {
+  const f = await fixture({ multiAgent:true });
+  try {
+    await f.executar();
+    assert.deepEqual(f.erros, []);
+    assert.deepEqual(f.falas, ['resposta concluida']);
+    assert.ok(f.avisos.some(t=>t.includes('multi_agent')));
+  } finally { await f.limpar(); }
+});
 
 test('CLI ficticia: aviso informativo nao oculta falha real', async () => {
   const f = await fixture({ aviso: true, falha: true });
